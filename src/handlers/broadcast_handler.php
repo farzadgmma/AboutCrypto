@@ -3,7 +3,6 @@
 
 /**
  * Initiates the broadcast process.
- * Asks the admin to send the message they want to broadcast.
  */
 function handle_broadcast_request($chat_id, $user_id) {
     $db = new Database();
@@ -13,8 +12,7 @@ function handle_broadcast_request($chat_id, $user_id) {
 }
 
 /**
- * Executes the broadcast.
- * Fetches all users and sends them the given message.
+ * Adds the broadcast message to a queue for later processing by the cron job.
  */
 function execute_broadcast($admin_chat_id, $message_text) {
     $db = new Database();
@@ -23,22 +21,23 @@ function execute_broadcast($admin_chat_id, $message_text) {
     $stmt = $db->executeQuery("SELECT id FROM users");
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $success_count = 0;
     $total_users = count($users);
+    $queued_count = 0;
 
-    sendMessage($admin_chat_id, "⏳ در حال شروع ارسال پیام همگانی به " . $total_users . " کاربر...");
+    // Prepare the insert statement
+    $query = "INSERT INTO broadcast_queue (user_id, message_text) VALUES (?, ?)";
+    $insert_stmt = $db->conn->prepare($query);
 
     foreach ($users as $user) {
-        // sendMessage to each user
-        // Using @ to suppress errors if a user has blocked the bot
-        @sendMessage($user['id'], $message_text);
-        $success_count++;
-        // Avoid hitting Telegram's rate limits
-        usleep(100000); // 0.1 second delay between messages
+        // Add each message to the queue
+        if ($user['id'] != $admin_chat_id) { // Don't send to the admin who initiated it
+            $insert_stmt->execute([$user['id'], $message_text]);
+            $queued_count++;
+        }
     }
 
     // Report back to the admin
-    sendMessage($admin_chat_id, "✅ پیام همگانی با موفقیت به " . $success_count . " نفر از " . $total_users . " کاربر ارسال شد.");
+    sendMessage($admin_chat_id, "✅ پیام شما با موفقیت در صف ارسال برای " . $queued_count . " کاربر قرار گرفت. این پیام‌ها به تدریج توسط سرور ارسال خواهند شد.");
 
     // Reset admin's step
     $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$admin_chat_id]);
