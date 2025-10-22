@@ -41,4 +41,8 @@ function execute_broadcast($admin_chat_id, $message_text) {
 
     // Reset admin's step
     $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$admin_chat_id]);
+
+    // After finishing, show the admin panel again
+    $admin_keyboard = get_admin_panel_keyboard();
+    sendMessage($admin_chat_id, "بازگشت به پنل مدیریت.", json_encode($admin_keyboard));
 }

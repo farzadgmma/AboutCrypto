@@ -1,105 +1,80 @@
 <?php
 // src/handlers/upload_handler.php
 
-function handle_upload_request($chat_id, $user_id) {
+/**
+ * Handles the initial "Upload File" button press from a user.
+ * Sets the user's step to 'awaiting_file'.
+ */
+function handle_upload_button($chat_id, $user_id) {
     $db = new Database();
     $db->executeQuery("UPDATE users SET step = 'awaiting_file' WHERE id = ?", [$user_id]);
-    sendMessage($chat_id, "لطفاً فایل خود را ارسال کنید...");
+
+    sendMessage($chat_id, "لطفاً فایل خود را ارسال کنید.");
 }
 
+/**
+ * Handles a received file from a user whose step is 'awaiting_file'.
+ * Stores the file info and notifies admins for approval.
+ */
 function handle_received_file($message) {
-    $user_id = $message['from']['id'];
-    if (in_array($user_id, ADMIN_IDS)) {
-        handle_admin_file_upload($message);
-    } else {
-        handle_user_file_submission($message);
-    }
-}
-
-function handle_admin_file_upload($message) {
     $db = new Database();
     $user_id = $message['from']['id'];
     $chat_id = $message['chat']['id'];
 
-    $file_info = extract_file_info($message);
-    if (!$file_info) {
-        sendMessage($chat_id, "نوع فایل پشتیبانی نمی‌شود.");
-        return;
-    }
+    $file_id = null;
+    $file_type = null;
+    $caption = $message['caption'] ?? '';
 
-    $code = generate_unique_code($db, 'files');
-    $query = "INSERT INTO files (code, uploader_id, file_id, file_type, file_name, file_size, caption) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    $params = [$code, $user_id, $file_info['file_id'], $file_info['file_type'], $file_info['file_name'], $file_info['file_size'], $file_info['caption']];
-    $db->executeQuery($query, $params);
-
-    $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
-    sendMessage($chat_id, "فایل شما (به عنوان ادمین) با موفقیت آپلود شد!\n\nکد فایل: `" . $code . "`");
-}
-
-function handle_user_file_submission($message) {
-    $db = new Database();
-    $user_id = $message['from']['id'];
-    $chat_id = $message['chat']['id'];
-
-    $file_info = extract_file_info($message);
-    if (!$file_info) {
-        sendMessage($chat_id, "نوع فایل پشتیبانی نمی‌شود.");
-        return;
-    }
-
-    $query = "INSERT INTO user_files (user_id, file_id, file_type, caption) VALUES (?, ?, ?, ?)";
-    $params = [$user_id, $file_info['file_id'], $file_info['file_type'], $file_info['caption']];
-    $db->executeQuery($query, $params);
-
-    $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
-    sendMessage($chat_id, "فایل شما با موفقیت برای بررسی ارسال شد. پس از تایید توسط ادمین، به شما اطلاع داده خواهد شد.");
-
-    // Notify admins
-    $pending_files_stmt = $db->executeQuery("SELECT COUNT(*) as count FROM user_files WHERE status = 'pending'");
-    $pending_count = $pending_files_stmt->fetch(PDO::FETCH_ASSOC)['count'];
-
-    foreach (ADMIN_IDS as $admin_id) {
-        sendMessage($admin_id, "یک فایل جدید برای تایید ارسال شده است. (" . $pending_count . " فایل در صف انتظار)");
-    }
-}
-
-function extract_file_info($message) {
-    $file_info = [
-        'file_id'   => null, 'file_type' => null, 'file_name' => null,
-        'file_size' => null, 'caption'   => $message['caption'] ?? null,
-    ];
-
-    if (isset($message['video'])) {
-        $file = $message['video'];
-        $file_info['file_type'] = 'video';
-        $file_info['file_name'] = $file['file_name'] ?? 'video.mp4';
+    // Determine file type and get file_id
+    if (isset($message['photo'])) {
+        $file_id = $message['photo'][count($message['photo']) - 1]['file_id'];
+        $file_type = 'photo';
+    } elseif (isset($message['video'])) {
+        $file_id = $message['video']['file_id'];
+        $file_type = 'video';
     } elseif (isset($message['document'])) {
-        $file = $message['document'];
-        $file_info['file_type'] = 'document';
-        $file_info['file_name'] = $file['file_name'];
-    } elseif (isset($message['audio'])) {
-        $file = $message['audio'];
-        $file_info['file_type'] = 'audio';
-        $file_info['file_name'] = $file['file_name'] ?? 'audio.mp3';
-    } elseif (isset($message['photo'])) {
-        $file = end($message['photo']);
-        $file_info['file_type'] = 'photo';
-        $file_info['file_name'] = 'photo.jpg';
+        $file_id = $message['document']['file_id'];
+        $file_type = 'document';
+    } // Add other file types as needed (audio, voice, etc.)
+
+    if ($file_id) {
+        // Insert into user_files table with 'pending' status
+        $db->executeQuery(
+            "INSERT INTO user_files (user_id, file_id, file_type, caption, status) VALUES (?, ?, ?, ?, 'pending')",
+            [$user_id, $file_id, $file_type, $caption]
+        );
+        $file_db_id = $db->getDb()->lastInsertId();
+
+
+        // Notify admins
+        $notification_text = "یک فایل جدید توسط کاربر ID: $user_id برای تایید ارسال شده است.\n\nنوع فایل: $file_type";
+        if (!empty($caption)) {
+            $notification_text .= "\nکپشن: " . htmlspecialchars($caption);
+        }
+
+        $inline_keyboard = [
+            [
+                ['text' => '✅ تایید', 'callback_data' => 'approve_file_' . $file_db_id],
+                ['text' => '❌ رد', 'callback_data' => 'reject_file_' . $file_db_id]
+            ]
+        ];
+        $reply_markup = json_encode(['inline_keyboard' => $inline_keyboard]);
+
+        // Fetch all admins from both config and database
+        $all_admins = ADMIN_IDS;
+        $admin_stmt = $db->executeQuery("SELECT user_id FROM admins");
+        $db_admins = $admin_stmt->fetchAll(PDO::FETCH_COLUMN);
+        $all_admins = array_unique(array_merge($all_admins, $db_admins));
+
+
+        foreach ($all_admins as $admin_id) {
+            sendMessage($admin_id, $notification_text, ['reply_markup' => $reply_markup]);
+        }
+
+        // Reset user's step and confirm receipt
+        $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
+        sendMessage($chat_id, "فایل شما دریافت شد و پس از بررسی توسط ادمین، در ربات قرار خواهد گرفت.");
     } else {
-        return null;
+        sendMessage($chat_id, "نوع فایل پشتیبانی نمی‌شود. لطفاً عکس، ویدیو یا سند ارسال کنید.");
     }
-
-    $file_info['file_id'] = $file['file_id'];
-    $file_info['file_size'] = $file['file_size'] ?? 0;
-
-    return $file_info;
-}
-
-function generate_unique_code($db, $table_name) {
-    $code = '';
-    do {
-        $code = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 6);
-        $stmt = $db->executeQuery("SELECT code FROM " . $table_name . " WHERE code = ?", [$code]);
-    } while ($stmt->rowCount() > 0);
-    return $code;
 }

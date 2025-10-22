@@ -5,6 +5,12 @@
  * Displays the main admin panel menu, now with a pending file count.
  */
 function handle_admin_panel($chat_id) {
+    $keyboard = get_admin_panel_keyboard();
+    $encoded_keyboard = json_encode($keyboard);
+    sendMessage($chat_id, "به پنل مدیریت خوش آمدید.", $encoded_keyboard);
+}
+
+function get_admin_panel_keyboard() {
     $db = new Database();
     $pending_files_stmt = $db->executeQuery("SELECT COUNT(*) as count FROM user_files WHERE status = 'pending'");
     $pending_count = $pending_files_stmt->fetch(PDO::FETCH_ASSOC)['count'];
@@ -14,17 +20,17 @@ function handle_admin_panel($chat_id) {
         $pending_button_text .= ' (' . $pending_count . ')';
     }
 
-    $keyboard = [
+    return [
         'keyboard' => [
-            [['text' => $pending_button_text]],
-            [['text' => 'مدیریت رسانه 🗂'], ['text' => 'مدیریت پوشه‌ها 📁']],
-            [['text' => 'آمار ربات 📊'], ['text' => 'پیام همگانی  broadcast']],
-            [['text' => 'بازگشت به منوی اصلی 🏠']],
+            [['text' => 'آپلود تکی/آلبومی رسانه 📤']],
+            [['text' => $pending_button_text],['text' => 'مدیریت رسانه 🗂']],
+            [['text' => 'مدیریت پوشه‌ها 📂'], ['text' => 'آمار ربات 📊']],
+            [['text' => 'تنظیمات پرداخت 💰'], ['text' => 'شخصی سازی 🎨']],
+            [['text' => 'تنظیمات تعامل اجباری 👁️‍🗨️'], ['text' => 'تنظیمات تبلیغات 📢']],
+            [['text' => 'پیام همگانی  broadcast'], ['text' => 'بازگشت به منوی اصلی 🏠']],
         ],
         'resize_keyboard' => true,
     ];
-    $encoded_keyboard = json_encode($keyboard);
-    sendMessage($chat_id, "به پنل مدیریت خوش آمدید.", $encoded_keyboard);
 }
 
 /**
@@ -67,7 +73,7 @@ function handle_pending_files_request($chat_id) {
 function handle_media_management($chat_id) {
     $keyboard = [
         'keyboard' => [
-            [['text' => 'اطلاعات رسانه ℹ️']],
+            [['text' => 'جستجو رسانه 🔎']],
             [['text' => 'بازگشت به پنل ادمین 🔙']],
         ],
         'resize_keyboard' => true,
@@ -91,6 +97,22 @@ function handle_folder_management($chat_id) {
     ];
     $encoded_keyboard = json_encode($keyboard);
     sendMessage($chat_id, "منوی مدیریت پوشه‌ها:", $encoded_keyboard);
+}
+
+function promptForSearchType($chat_id, $user_id) {
+    $db = new Database();
+    $db->executeQuery("UPDATE users SET step = 'awaiting_search_type_selection' WHERE id = ?", [$user_id]);
+
+    $keyboard = [
+        'keyboard' => [
+            [['text' => 'بر اساس متن تامنیل'], ['text' => 'بر اساس کد']],
+            [['text' => 'بر اساس نوع فایل'], ['text' => 'بر اساس کپشن فایل']],
+            [['text' => 'بازگشت به مدیریت رسانه']],
+        ],
+        'resize_keyboard' => true,
+    ];
+    $encoded_keyboard = json_encode($keyboard);
+    sendMessage($chat_id, "لطفا نوع جستجو مورد نظر خود را انتخاب کنید:", $encoded_keyboard);
 }
 
 function handle_create_folder_request($chat_id, $user_id) {
@@ -138,4 +160,22 @@ function handle_folder_codes_received($chat_id, $user_id, $folder_name, $file_co
 
     $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
     handle_folder_management($chat_id);
+}
+
+/**
+ * Displays the payment settings menu for the admin.
+ */
+function handle_payment_settings($chat_id) {
+    $keyboard = [
+        'keyboard' => [
+            [['text' => '⚙️ درگاه پرداخت'], ['text' => '♻️ تغییر اشتراک کاربر']],
+            [['text' => '📥 تعداد دانلود رایگان']],
+            [['text' => '🔑 تغییر مریچنت زرین پال'], ['text' => '🔑 تغییر مریچنت زیبال']],
+            [['text' => '📃 تغییر متن خرید اشتراک'], ['text' => '🗂 مدیریت اشتراک ها']],
+            [['text' => 'بازگشت به پنل ادمین 🔙']],
+        ],
+        'resize_keyboard' => true,
+    ];
+    $encoded_keyboard = json_encode($keyboard);
+    sendMessage($chat_id, "به بخش تنظیمات پرداخت خوش آمدید.", $encoded_keyboard);
 }

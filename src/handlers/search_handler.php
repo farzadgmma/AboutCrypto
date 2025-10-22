@@ -1,72 +1,97 @@
 <?php
 // src/handlers/search_handler.php
 
-function handle_search_request($chat_id, $user_id) {
+/**
+ * Handles the admin's request to search by file code.
+ * If found, it shows the management menu for that file.
+ */
+function handle_search_by_code($chat_id, $user_id, $file_code) {
     $db = new Database();
-    $db->executeQuery("UPDATE users SET step = 'awaiting_search_query' WHERE id = ?", [$user_id]);
-    sendMessage($chat_id, "لطفاً کد یا نام فایل مورد نظر خود را برای جستجو وارد کنید:");
+    $stmt = $db->executeQuery("SELECT * FROM files WHERE code = ?", [$file_code]);
+
+    if ($stmt->rowCount() > 0) {
+        // File found, display the specific management menu for it
+        display_media_management_menu($chat_id, $file_code);
+    } else {
+        sendMessage($chat_id, "فایلی با کد `" . $file_code . "` یافت نشد.");
+    }
+    // Reset user step
+    $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
 }
 
 /**
- * Initiates a search. If only one result is found, sends it directly.
- * Otherwise, displays the first page of results.
+ * Handles the admin's request to search by file caption.
+ * Kicks off the paginated display of results.
  */
-function handle_search_query($chat_id, $user_id, $query_text) {
+function handle_search_by_caption($chat_id, $user_id, $query_text) {
+    display_search_results($chat_id, 'caption', $query_text, 1, null);
+    // Reset user step
     $db = new Database();
-
-    // First, let's see how many results we have
-    $count_stmt = $db->executeQuery("SELECT COUNT(*) FROM files WHERE code = ? OR file_name LIKE ?", [$query_text, '%' . $query_text . '%']);
-    $total_results = $count_stmt->fetchColumn();
-
-    if ($total_results === 1) {
-        // If exactly one result, fetch it and send it directly
-        $stmt = $db->executeQuery("SELECT * FROM files WHERE code = ? OR file_name LIKE ? LIMIT 1", [$query_text, '%' . $query_text . '%']);
-        $file = $stmt->fetch(PDO::FETCH_ASSOC);
-        handle_file_request($chat_id, $user_id, $file['code']);
-    } elseif ($total_results > 1) {
-        // If more than one result, show paginated list
-        display_search_results($chat_id, $query_text, 1, null);
-    } else {
-        // If no results
-        sendMessage($chat_id, "هیچ نتیجه‌ای برای عبارت '" . $query_text . "' یافت نشد.");
-    }
-
-    // Reset user step after initiating the search
     $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
 }
 
 
 /**
- * Displays a paginated list of search results.
- * (This function remains unchanged from the previous step)
+ * Displays a paginated list of search results based on a specific field.
+ *
+ * @param int $chat_id The chat ID.
+ * @param string $search_by The database column to search in (e.g., 'caption', 'file_type').
+ * @param string $query The search query.
+ * @param int $page The current page number.
+ * @param int|null $message_id The message ID to edit, if applicable.
  */
-function display_search_results($chat_id, $query, $page = 1, $message_id = null) {
+function display_search_results($chat_id, $search_by, $query, $page = 1, $message_id = null) {
     $db = new Database();
     $results_per_page = 5;
     $offset = ($page - 1) * $results_per_page;
 
-    $count_stmt = $db->executeQuery("SELECT COUNT(*) FROM files WHERE code = ? OR file_name LIKE ?", [$query, '%' . $query . '%']);
+    // Validate search field to prevent SQL injection
+    $allowed_fields = ['caption', 'file_type', 'thumbnail_caption'];
+    if (!in_array($search_by, $allowed_fields)) {
+        // It's better to log this error than to show it to the user.
+        sendMessage($chat_id, "خطای داخلی: نوع جستجوی نامعتبر است.");
+        return;
+    }
+
+    $search_pattern = '%' . $query . '%';
+
+    // Get total count for pagination
+    $count_sql = "SELECT COUNT(*) FROM files WHERE " . $search_by . " LIKE ?";
+    $count_stmt = $db->executeQuery($count_sql, [$search_pattern]);
     $total_results = $count_stmt->fetchColumn();
+
+    if($total_results == 0){
+        sendMessage($chat_id, "هیچ نتیجه‌ای برای عبارت '" . $query . "' یافت نشد.");
+        return;
+    }
+
     $total_pages = ceil($total_results / $results_per_page);
 
-    $query_sql = "SELECT code, file_name, file_type FROM files WHERE code = ? OR file_name LIKE ? LIMIT ? OFFSET ?";
-    $stmt = $db->executeQuery($query_sql, [$query, '%' . $query . '%', $results_per_page, $offset]);
+    // Get results for the current page
+    $query_sql = "SELECT code, caption, file_type FROM files WHERE " . $search_by . " LIKE ? LIMIT ? OFFSET ?";
+    $stmt = $db->executeQuery($query_sql, [$search_pattern, $results_per_page, $offset]);
     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $response_text = "🔍 نتایج جستجو برای: `" . $query . "`\n";
     $response_text .= "صفحه " . $page . " از " . $total_pages . " (مجموع نتایج: " . $total_results . ")\n\n";
-    $response_text .= "برای دریافت فایل، کد آن را کپی و ارسال کنید:\n\n";
+    $response_text .= "برای مدیریت فایل، کد آن را لمس کرده و کپی کنید، سپس در ربات ارسال کنید:\n\n";
 
     foreach ($results as $result) {
-        $response_text .= "📂 `" . $result['code'] . "` - " . $result['file_name'] . "\n";
+        $short_caption = mb_substr($result['caption'], 0, 50, 'UTF-8');
+        if (mb_strlen($result['caption'], 'UTF-8') > 50) {
+            $short_caption .= '...';
+        }
+        $response_text .= "📂 `" . $result['code'] . "` - " . $short_caption . "\n";
     }
 
+    // Pagination buttons
     $keyboard_row = [];
+    $callback_prefix = 'search_page_' . $search_by . '_';
     if ($page > 1) {
-        $keyboard_row[] = ['text' => '◀️ قبلی', 'callback_data' => 'search_page_' . ($page - 1) . '_' . $query];
+        $keyboard_row[] = ['text' => '◀️ قبلی', 'callback_data' => $callback_prefix . ($page - 1) . '_' . $query];
     }
     if ($page < $total_pages) {
-        $keyboard_row[] = ['text' => 'بعدی ▶️', 'callback_data' => 'search_page_' . ($page + 1) . '_' . $query];
+        $keyboard_row[] = ['text' => 'بعدی ▶️', 'callback_data' => $callback_prefix . ($page + 1) . '_' . $query];
     }
 
     $inline_keyboard = ['inline_keyboard' => [$keyboard_row]];
@@ -77,9 +102,4 @@ function display_search_results($chat_id, $query, $page = 1, $message_id = null)
     } else {
         sendMessage($chat_id, $response_text, $encoded_keyboard);
     }
-}
-
-
-function sendFile($chat_id, $file_id, $file_type, $caption = null, $reply_markup = null) {
-    // ... (This function remains unchanged)
 }

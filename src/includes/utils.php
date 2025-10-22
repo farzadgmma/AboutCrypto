@@ -25,6 +25,25 @@ function isAdmin($userId, $db) {
 }
 
 /**
+ * Generates a unique random code for a file.
+ *
+ * @param Database $db The database instance.
+ * @param int $length The length of the code.
+ * @return string The unique code.
+ */
+function generateUniqueFileCode($db, $length = 6) {
+    $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    do {
+        $code = '';
+        for ($i = 0; $i < $length; $i++) {
+            $code .= $characters[mt_rand(0, strlen($characters) - 1)];
+        }
+        $stmt = $db->executeQuery("SELECT id FROM files WHERE code = ?", [$code]);
+    } while ($stmt->rowCount() > 0);
+    return $code;
+}
+
+/**
  * Generates a random alphanumeric code of a given length.
  *
  * @param int $length The desired length of the code.
