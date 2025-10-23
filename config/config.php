@@ -1,23 +1,39 @@
 <?php
 // config/config.php
+// این فایل شامل تمام تنظیمات اصلی و حیاتی ربات است.
+// لطفاً مقادیر زیر را با اطلاعات واقعی خود جایگزین کنید.
 
-// --- Telegram Bot API Settings ---
-define('BOT_TOKEN', 'YOUR_TELEGRAM_BOT_TOKEN');
+// --- توکن ربات تلگرام ---
+// این توکن را از BotFather@ در تلگرام دریافت می‌کنید.
+// مثال: '1234567890:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'
+define('API_TOKEN', '7842501761:AAGKtgrjtXMnNXqsYViuD-IW9D0ytTAdcIg');
 
-// --- Database Settings ---
-define('DB_HOST', '127.0.0.1');
-define('DB_USER', 'root');
-define('DB_PASS', 'password');
-define('DB_NAME', 'telegram_bot');
+// --- اطلاعات اتصال به دیتابیس ---
+// این اطلاعات را از پنل هاست خود دریافت می‌کنید.
+define('DB_HOST', 'localhost');      // آدرس میزبان دیتابیس (معمولاً localhost)
+define('DB_NAME', 'cryptofi_bot_t'); // نام دیتابیس شما
+define('DB_USER', 'cryptofi_bot_1');   // نام کاربری دیتابیس شما
+define('DB_PASS', 'Farzad1989');      // رمز عبور دیتابیس شما
 
-// --- Admin User IDs ---
-// Add your numeric Telegram User ID here to grant admin privileges.
-const ADMIN_IDS = [
-    63583254,    // Example Admin ID 1
-    // 123456789, // Example Admin ID 2
+// --- آدرس پایه (URL) ---
+// آدرس کاملی که فایل‌های ربات در آن قرار دارند.
+// این آدرس برای وبهوک (Webhook) و بازگشت از درگاه پرداخت استفاده می‌شود.
+// مثال: 'https://yourdomain.com/path/to/bot/'
+define('BASE_URL', 'https://crypto1film.online/AboutCrypto-feature-telegram-bot-rewrite/');
+
+// --- لیست ادمین‌های ربات ---
+// آرایه‌ای از شناسه‌های عددی (User ID) ادمین‌ها.
+// این کاربران به تمام بخش‌های مدیریتی ربات دسترسی خواهند داشت.
+const ADMINS = [
+    8109182621, // farzadasaadi
+    8174232834  // ادمین دوم (از کانفیگ قدیمی شما)
 ];
 
-// --- Web Application URL ---
-// The base URL of your web server where payment callbacks are handled.
-// Example: https://yourdomain.com/bot_directory
-define('BASE_URL', 'http://yourwebsite.com');
+// --- تنظیمات نمایش خطا برای توسعه و اشکال‌زدایی ---
+// در حین توسعه، این گزینه باید فعال باشد تا خطاها را ببینید.
+// پس از اتمام کار و در حالت عملیاتی، بهتر است این بخش را غیرفعال کنید.
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+?>

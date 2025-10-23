@@ -1,93 +1,52 @@
 <?php
 // src/includes/database.php
+// این کلاس مسئولیت مدیریت کامل اتصال به دیتابیس را بر عهده دارد.
 
 class Database {
-    private $pdo;
-    private $last_insert_id;
+    // مشخصات اتصال به دیتابیس که از فایل config.php خوانده می‌شوند.
+    private $host = DB_HOST;         // میزبان دیتابیس
+    private $db_name = DB_NAME;      // نام دیتابیس
+    private $username = DB_USER;     // نام کاربری دیتابیس
+    private $password = DB_PASS;     // رمز عبور دیتابیس
+    public $conn;                    // متغیری برای نگهداری آبجکت اتصال
 
-    public function __construct() {
+    /**
+     * متد اصلی برای برقراری اتصال به دیتابیس با استفاده از PDO.
+     * PDO یک روش مدرن و امن برای کار با دیتابیس در PHP است.
+     * @return PDO|null آبجکت اتصال PDO در صورت موفقیت، و null در صورت شکست.
+     */
+    public function getConnection() {
+        // ابتدا متغیر اتصال را null قرار می‌دهیم تا از اتصالات قبلی جلوگیری شود.
+        $this->conn = null;
+
         try {
-            $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-            $this->pdo = new PDO($dsn, DB_USER, DB_PASS, [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES   => false,
-            ]);
-        } catch (PDOException $e) {
-            // In a real application, you would log this error and show a generic message.
-            // For debugging, we'll show the error.
-            error_log("Database connection failed: " . $e->getMessage());
-            die("Database connection failed. Please check the logs.");
+            // ساخت رشته DSN (Data Source Name) برای اتصال
+            $dsn = "mysql:host=" . $this->host . ";dbname=" . $this->db_name . ";charset=utf8mb4";
+
+            // ایجاد یک نمونه جدید از کلاس PDO برای برقراری اتصال
+            // این بخش مهم‌ترین قسمت برای اتصال به دیتابیس است.
+            $this->conn = new PDO($dsn, $this->username, $this->password);
+
+            // تنظیم حالت خطا در PDO. این دستور باعث می‌شود در صورت بروز خطا، یک استثنا (Exception) پرتاب شود.
+            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+            // تنظیم انکودینگ ارتباط با دیتابیس به utf8mb4 تا از کاراکترهای فارسی و ایموجی‌ها پشتیبانی شود.
+            $this->conn->exec("set names utf8mb4");
+
+        } catch(PDOException $exception) {
+            // اگر در هر یک از مراحل بالا خطایی رخ دهد (مثلاً اطلاعات اتصال اشتباه باشد)،
+            // این بلوک کد اجرا می‌شود.
+
+            // ثبت پیغام خطا در لاگ سرور به جای نمایش آن به کاربر.
+            // این کار امنیت را افزایش می‌دهد.
+            error_log("خطا در اتصال به دیتابیس: " . $exception->getMessage());
+
+            // در صورت بروز خطا، null را باز می‌گردانیم تا کدی که این متد را فراخوانی کرده، متوجه شکست اتصال شود.
+            return null;
         }
+
+        // اگر همه چیز موفقیت‌آمیز باشد، آبجکت اتصال را باز می‌گردانیم.
+        return $this->conn;
     }
-
-    /**
-     * A versatile method to execute any SQL query.
-     * Uses prepared statements to prevent SQL injection.
-     *
-     * @param string $sql The SQL query to execute.
-     * @param array $params The parameters to bind to the query.
-     * @return PDOStatement Returns the PDOStatement object after execution.
-     */
-    public function executeQuery($sql, $params = []) {
-        try {
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute($params);
-
-            // Check if the query was an INSERT and store the last insert ID
-            if (stripos(trim($sql), 'INSERT') === 0) {
-                $this->last_insert_id = $this->pdo->lastInsertId();
-            }
-
-            return $stmt;
-        } catch (PDOException $e) {
-            // Log the error for administrators
-            error_log("Database query failed: " . $e->getMessage() . " | SQL: " . $sql . " | Params: " . implode(", ", $params));
-            // You could throw an exception or handle it as needed.
-            // For now, we'll return false to indicate failure.
-            return false;
-        }
-    }
-
-    /**
-     * Retrieves the ID of the last inserted row.
-     *
-     * @return string The ID of the last inserted row.
-     */
-    public function lastInsertId() {
-        return $this->last_insert_id;
-    }
-
-    /**
-     * A specific helper function to get a single setting value.
-     *
-     * @param string $setting_name The name of the setting to retrieve.
-     * @param mixed $default The default value to return if the setting is not found.
-     * @return mixed The value of the setting or the default value.
-     */
-    public function getSetting($setting_name, $default = null) {
-        $stmt = $this->executeQuery("SELECT value FROM settings WHERE name = ? LIMIT 1", [$setting_name]);
-        if ($stmt && $stmt->rowCount() > 0) {
-            return $stmt->fetchColumn();
-        }
-        return $default;
-    }
-
-    /**
-     * A specific helper function to update or insert a setting value.
-     *
-     * @param string $setting_name The name of the setting.
-     * @param mixed $value The value of the setting.
-     * @return bool True on success, false on failure.
-     */
-    public function setSetting($setting_name, $value) {
-        // ON DUPLICATE KEY UPDATE is a safe and efficient way to handle insert/update logic
-        $stmt = $this->executeQuery(
-            "INSERT INTO settings (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?",
-            [$setting_name, $value, $value]
-        );
-        return $stmt !== false;
-    }
-
-
 }
+?>

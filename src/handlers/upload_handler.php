@@ -1,80 +1,154 @@
 <?php
 // src/handlers/upload_handler.php
+// این فایل مسئولیت مدیریت تمام منطق مربوط به آپلود فایل را بر عهده دارد.
+// این شامل شروع آپلود توسط ادمین و دریافت فایل از کاربران می‌شود.
 
 /**
- * Handles the initial "Upload File" button press from a user.
- * Sets the user's step to 'awaiting_file'.
+ * این تابع زمانی فراخوانی می‌شود که ادمین روی دکمه "آپلود" کلیک می‌کند.
+ * یک پیام راهنما برای ادمین ارسال کرده و وضعیت او را برای دریافت فایل تنظیم می‌کند.
+ * @param int $chat_id شناسه چت ادمین
  */
-function handle_upload_button($chat_id, $user_id) {
-    $db = new Database();
-    $db->executeQuery("UPDATE users SET step = 'awaiting_file' WHERE id = ?", [$user_id]);
+function handle_admin_upload_start($chat_id) {
+    // تنظیم وضعیت ادمین به 'admin_uploading'
+    // این کار به ربات می‌گوید که پیام‌های بعدی این کاربر (تا زمانی که وضعیت پاک شود) فایل‌هایی برای آپلود هستند.
+    set_user_state($chat_id, 'admin_uploading');
 
-    sendMessage($chat_id, "لطفاً فایل خود را ارسال کنید.");
+    // ارسال پیام راهنما به ادمین
+    $text = "لطفاً فایل یا فایل‌های خود را ارسال کنید. می‌توانید چندین فایل را به صورت آلبومی ارسال کنید.\n\n" .
+            "پس از ارسال تمام فایل‌ها، یک دکمه برای ذخیره‌سازی نهایی به شما نمایش داده خواهد شد.";
+
+    send_message($chat_id, $text);
 }
 
 /**
- * Handles a received file from a user whose step is 'awaiting_file'.
- * Stores the file info and notifies admins for approval.
+ * این تابع زمانی فراخوانی می‌شود که یک پیام حاوی فایل دریافت می‌شود.
+ * این تابع وضعیت کاربر را بررسی کرده و بر اساس آن تصمیم می‌گیرد که فایل را چگونه پردازش کند.
+ * @param PDO $pdo آبجکت اتصال به دیتابیس
+ * @param stdClass $update آبجکت کامل آپدیت از تلگرام
  */
-function handle_received_file($message) {
-    $db = new Database();
-    $user_id = $message['from']['id'];
-    $chat_id = $message['chat']['id'];
+function handle_file_receive($pdo, $update) {
+    $chat_id = $update->message->chat->id;
+    $user_id = $update->message->from->id;
+    $state = get_user_state($user_id);
 
-    $file_id = null;
-    $file_type = null;
-    $caption = $message['caption'] ?? '';
-
-    // Determine file type and get file_id
-    if (isset($message['photo'])) {
-        $file_id = $message['photo'][count($message['photo']) - 1]['file_id'];
-        $file_type = 'photo';
-    } elseif (isset($message['video'])) {
-        $file_id = $message['video']['file_id'];
-        $file_type = 'video';
-    } elseif (isset($message['document'])) {
-        $file_id = $message['document']['file_id'];
-        $file_type = 'document';
-    } // Add other file types as needed (audio, voice, etc.)
-
-    if ($file_id) {
-        // Insert into user_files table with 'pending' status
-        $db->executeQuery(
-            "INSERT INTO user_files (user_id, file_id, file_type, caption, status) VALUES (?, ?, ?, ?, 'pending')",
-            [$user_id, $file_id, $file_type, $caption]
-        );
-        $file_db_id = $db->getDb()->lastInsertId();
-
-
-        // Notify admins
-        $notification_text = "یک فایل جدید توسط کاربر ID: $user_id برای تایید ارسال شده است.\n\nنوع فایل: $file_type";
-        if (!empty($caption)) {
-            $notification_text .= "\nکپشن: " . htmlspecialchars($caption);
-        }
-
-        $inline_keyboard = [
-            [
-                ['text' => '✅ تایید', 'callback_data' => 'approve_file_' . $file_db_id],
-                ['text' => '❌ رد', 'callback_data' => 'reject_file_' . $file_db_id]
-            ]
-        ];
-        $reply_markup = json_encode(['inline_keyboard' => $inline_keyboard]);
-
-        // Fetch all admins from both config and database
-        $all_admins = ADMIN_IDS;
-        $admin_stmt = $db->executeQuery("SELECT user_id FROM admins");
-        $db_admins = $admin_stmt->fetchAll(PDO::FETCH_COLUMN);
-        $all_admins = array_unique(array_merge($all_admins, $db_admins));
-
-
-        foreach ($all_admins as $admin_id) {
-            sendMessage($admin_id, $notification_text, ['reply_markup' => $reply_markup]);
-        }
-
-        // Reset user's step and confirm receipt
-        $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$user_id]);
-        sendMessage($chat_id, "فایل شما دریافت شد و پس از بررسی توسط ادمین، در ربات قرار خواهد گرفت.");
-    } else {
-        sendMessage($chat_id, "نوع فایل پشتیبانی نمی‌شود. لطفاً عکس، ویدیو یا سند ارسال کنید.");
+    // بررسی وضعیت کاربر برای تشخیص نوع آپلود
+    if ($state === 'admin_uploading') {
+        // اگر وضعیت کاربر 'admin_uploading' باشد، یعنی یک ادمین در حال آپلود فایل است.
+        process_admin_file($pdo, $update->message);
     }
+    // در آینده می‌توان وضعیت‌های دیگری مانند 'user_uploading' (آپلود توسط کاربر عادی) را نیز اینجا مدیریت کرد.
+    // else {
+    //     // اگر کاربر در هیچ وضعیت آپلودی نباشد، می‌توان فایل را نادیده گرفت یا پیام خطا داد.
+    //     send_message($chat_id, "برای آپلود فایل، لطفاً ابتدا از منوی مربوطه اقدام کنید.");
+    // }
+}
+
+/**
+ * این تابع یک فایل ارسال شده توسط ادمین را پردازش و در دیتابیس ذخیره می‌کند.
+ * @param PDO $pdo آبجکت اتصال به دیتابیس
+ * @param stdClass $message آبجکت پیام از تلگرام
+ */
+function process_admin_file($pdo, $message) {
+    $file_info = extract_file_info($message);
+
+    // اگر هیچ اطلاعات فایلی استخراج نشد، تابع متوقف می‌شود.
+    if (!$file_info) {
+        return;
+    }
+
+    // تولید یک کد منحصر به فرد 8 کاراکتری برای فایل
+    $file_code = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
+
+    // آماده‌سازی دستور SQL برای درج اطلاعات فایل در جدول 'files'
+    $stmt = $pdo->prepare(
+        "INSERT INTO files (file_id, file_unique_id, file_type, caption, file_code, uploader_id, forward_lock, channel_lock)
+         VALUES (?, ?, ?, ?, ?, ?, TRUE, TRUE)" // به صورت پیش‌فرض قفل‌ها فعال هستند
+    );
+
+    // اجرای دستور با اطلاعات استخراج شده از فایل
+    $stmt->execute([
+        $file_info['file_id'],
+        $file_info['file_unique_id'],
+        $file_info['file_type'],
+        $file_info['caption'],
+        $file_code,
+        $message->from->id
+    ]);
+
+    // پس از ذخیره موفقیت‌آمیز فایل، یک منوی مدیریتی به ادمین نمایش داده می‌شود.
+    show_file_management_menu($message->chat->id, $file_code);
+}
+
+
+/**
+ * این تابع یک منوی شیشه‌ای با گزینه‌های مدیریتی برای فایل تازه آپلود شده نمایش می‌دهد.
+ * @param int $chat_id شناسه چت ادمین
+ * @param string $file_code کد منحصر به فرد فایلی که مدیریت می‌شود
+ */
+function show_file_management_menu($chat_id, $file_code) {
+    $download_link = "https://t.me/" . BOT_USERNAME . "?start=dl_" . $file_code;
+
+    $text = "✅ فایل شما با موفقیت ذخیره شد.\n\n" .
+            "<b>کد فایل:</b> <code>{$file_code}</code>\n" .
+            "<b>لینک دانلود:</b> <code>{$download_link}</code>\n\n" .
+            "می‌توانید تنظیمات این فایل را در زیر مدیریت کنید:";
+
+    $keyboard = [
+        [['text' => '🔐 تنظیم/حذف رمز عبور', 'callback_data' => "set_password_{$file_code}"]],
+        [['text' => '📥 محدودیت دانلود', 'callback_data' => "set_download_limit_{$file_code}"]],
+        [['text' => '🔄 قفل فروارد (فعال)', 'callback_data' => "toggle_forward_lock_{$file_code}"]],
+        [['text' => '📢 قفل کانال (فعال)', 'callback_data' => "toggle_channel_lock_{$file_code}"]],
+        [['text' => '🗑 حذف فایل', 'callback_data' => "delete_file_{$file_code}"]],
+        [['text' => '📣 ارسال به کانال', 'callback_data' => "send_to_channel_{$file_code}"]]
+    ];
+
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
+
+    send_message($chat_id, $text, $reply_markup);
+
+    // پس از نمایش منو، وضعیت آپلود ادمین را پاک می‌کنیم تا آماده دریافت دستورات بعدی باشد.
+    clear_user_state($chat_id);
+}
+
+
+/**
+ * این تابع اطلاعات کلیدی یک فایل (مانند file_id، نوع، کپشن و ...) را از آبجکت پیام تلگرام استخراج می‌کند.
+ * @param stdClass $message آبجکت پیام
+ * @return array|null آرایه‌ای از اطلاعات فایل یا null در صورت عدم وجود فایل
+ */
+function extract_file_info($message) {
+    $file = null;
+    $file_type = '';
+
+    // بر اساس نوع پیام، اطلاعات فایل مربوطه را استخراج می‌کنیم
+    if (isset($message->video)) {
+        $file = $message->video;
+        $file_type = 'video';
+    } elseif (isset($message->document)) {
+        $file = $message->document;
+        $file_type = 'document';
+    } elseif (isset($message->audio)) {
+        $file = $message->audio;
+        $file_type = 'audio';
+    } elseif (isset($message->voice)) {
+        $file = $message->voice;
+        $file_type = 'voice';
+    } elseif (isset($message->photo)) {
+        // برای عکس، تلگرام آرایه‌ای از سایزهای مختلف ارسال می‌کند. ما بزرگترین سایز (آخرین عضو آرایه) را انتخاب می‌کنیم.
+        $file = end($message->photo);
+        $file_type = 'photo';
+    }
+
+    // اگر هیچ فایلی در پیام وجود نداشت، null را باز می‌گردانیم
+    if ($file === null) {
+        return null;
+    }
+
+    // بازگرداندن آرایه‌ای مرتب از اطلاعات استخراج شده
+    return [
+        'file_id' => $file->file_id,
+        'file_unique_id' => $file->file_unique_id,
+        'file_type' => $file_type,
+        'caption' => $message->caption ?? null, // اگر پیام کپشن نداشت، null ذخیره می‌شود
+    ];
 }

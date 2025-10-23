@@ -1,207 +1,154 @@
 <?php
-require_once 'config/config.php';
-require_once 'src/includes/database.php';
+// install.php
+// این اسکریپت تمام جداول مورد نیاز برای ربات را به صورت خودکار در دیتابیس ایجاد می‌کند.
+// لطفاً این فایل را در مسیر اصلی ربات روی هاست خود آپلود کرده و یک بار در مرورگر اجرا کنید.
+// پس از مشاهده پیام موفقیت‌آمیز، برای امنیت بیشتر، این فایل را از هاست خود حذف نمایید.
+
+// فعال‌سازی نمایش خطاها برای اشکال‌زدایی در حین نصب
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+echo "<h1>نصب و راه‌اندازی دیتابیس ربات</h1>";
+echo "<p>این اسکریپت در حال تلاش برای اتصال به دیتابیس و ساخت جداول مورد نیاز است...</p>";
+echo "<hr>";
+
+// فراخوانی فایل‌های ضروری با استفاده از مسیردهی دقیق
+require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/src/includes/database.php';
 
 try {
+    // ایجاد یک نمونه از کلاس دیتابیس برای برقراری اتصال
     $db = new Database();
-    $pdo = $db->getDb();
-    echo "Database connection successful.\n";
+    $pdo = $db->getConnection();
 
-    // Table for users
-    $sql_users = "
-    CREATE TABLE IF NOT EXISTS users (
-        id BIGINT PRIMARY KEY,
-        first_name VARCHAR(255) NOT NULL,
-        step VARCHAR(255) DEFAULT 'none',
-        join_date DATE,
-        download_count INT DEFAULT 0,
-        is_banned BOOLEAN DEFAULT FALSE,
-        is_vip BOOLEAN DEFAULT FALSE,
-        vip_expire_date DATE DEFAULT NULL,
-        interaction_cooldown_until TIMESTAMP NULL DEFAULT NULL,
-        current_folder_id INT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (current_folder_id) REFERENCES folders(id) ON DELETE SET NULL
-    );";
+    // بررسی موفقیت‌آمیز بودن اتصال
+    if ($pdo === null) {
+        die("<p style='color:red;'>❌ <b>خطا:</b> اتصال به دیتابیس ناموفق بود. لطفاً از صحت اطلاعات وارد شده در فایل `config/config.php` اطمینان حاصل کنید.</p>");
+    }
+    echo "<p style='color:green;'>✅ اتصال به دیتابیس با موفقیت برقرار شد.</p><hr>";
 
-    // Table for bot settings
-    $sql_settings = "
-    CREATE TABLE IF NOT EXISTS settings (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        starttext TEXT,
-        startdefault ENUM('on', 'off') DEFAULT 'on',
-        sendbut ENUM('on', 'off') DEFAULT 'on',
-        accountbut ENUM('on', 'off') DEFAULT 'on',
-        subbuy ENUM('on', 'off') DEFAULT 'on',
-        newdlbut ENUM('on', 'off') DEFAULT 'on',
-        topdlbut ENUM('on', 'off') DEFAULT 'on',
-        likedlbut ENUM('on', 'off') DEFAULT 'on',
-        supportbut ENUM('on', 'off') DEFAULT 'on'
-    );";
+    // --- مجموعه‌ای از دستورات SQL برای ساخت جداول ---
+    // از `CREATE TABLE IF NOT EXISTS` استفاده شده تا اگر جدولی از قبل وجود داشت، خطایی رخ ندهد.
+    $sql_commands = [
 
-    // Table for files uploaded by admins
-    $sql_files = "
-    CREATE TABLE IF NOT EXISTS files (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        code VARCHAR(10) UNIQUE NOT NULL,
-        file_id VARCHAR(255) NOT NULL,
-        file_type VARCHAR(50) NOT NULL,
-        caption TEXT,
-        password VARCHAR(255) NULL,
-        download_limit INT NULL,
-        download_count INT DEFAULT 0,
-        likes INT DEFAULT 0,
-        forward_lock BOOLEAN DEFAULT TRUE,
-        is_filtered BOOLEAN DEFAULT FALSE,
-        channel_lock BOOLEAN DEFAULT TRUE,
-        uploader_id BIGINT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );";
+        // جدول کاربران (users)
+        // برای نگهداری اطلاعات اصلی کاربران ربات
+        "CREATE TABLE IF NOT EXISTS `users` (
+            `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+            `user_id` BIGINT NOT NULL UNIQUE,
+            `first_name` VARCHAR(255) NOT NULL,
+            `username` VARCHAR(255) NULL,
+            `step` VARCHAR(255) DEFAULT 'none',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `last_activity` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            `vip_status` ENUM('no', 'yes') DEFAULT 'no',
+            `vip_expire_date` TIMESTAMP NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    // Table for files uploaded by users (pending approval)
-    $sql_user_files = "
-    CREATE TABLE IF NOT EXISTS user_files (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id BIGINT,
-        file_id VARCHAR(255) NOT NULL,
-        file_type VARCHAR(50) NOT NULL,
-        caption TEXT,
-        status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
-        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    );";
+        // جدول فایل‌ها (files)
+        // برای نگهداری اطلاعات مربوط به هر فایل آپلود شده
+        "CREATE TABLE IF NOT EXISTS `files` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `file_id` VARCHAR(255) NOT NULL,
+            `file_unique_id` VARCHAR(255) NOT NULL UNIQUE,
+            `file_type` VARCHAR(50) NOT NULL,
+            `caption` TEXT NULL,
+            `file_code` VARCHAR(20) NOT NULL UNIQUE,
+            `uploader_id` BIGINT NOT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `password` VARCHAR(255) NULL,
+            `download_limit` INT NULL,
+            `download_count` INT DEFAULT 0,
+            `forward_lock` BOOLEAN DEFAULT TRUE,
+            `channel_lock` BOOLEAN DEFAULT TRUE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    // Table for folders
-    $sql_folders = "
-    CREATE TABLE IF NOT EXISTS folders (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        parent_id INT NULL, -- For nested folders
-        FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE
-    );";
+        // جدول تنظیمات اصلی ربات (settings)
+        "CREATE TABLE IF NOT EXISTS `settings` (
+            `id` INT PRIMARY KEY DEFAULT 1,
+            `bot_active` BOOLEAN NOT NULL DEFAULT TRUE,
+            `default_start_text` TEXT NULL,
+            `payment_gateway` ENUM('zarinpal', 'zibal') DEFAULT 'zarinpal',
+            `ads_active` BOOLEAN NOT NULL DEFAULT FALSE,
+            `ads_position` ENUM('before', 'after') NOT NULL DEFAULT 'after'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    // Junction table for files and folders
-    $sql_folder_files = "
-    CREATE TABLE IF NOT EXISTS folder_files (
-        folder_id INT,
-        file_id INT,
-        PRIMARY KEY (folder_id, file_id),
-        FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-        FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
-    );";
+        // درج مقادیر اولیه برای جدول تنظیمات
+        "INSERT IGNORE INTO `settings` (`id`, `default_start_text`) VALUES (1, 'به ربات فایل منیجر خوش آمدید!');",
 
-    // Table for additional admins
-    $sql_admins = "
-    CREATE TABLE IF NOT EXISTS admins (
-        user_id BIGINT PRIMARY KEY,
-        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    );";
+        // جدول پلن‌های پرداخت (payment_plans)
+        "CREATE TABLE IF NOT EXISTS `payment_plans` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(255) NOT NULL,
+            `price` INT NOT NULL,
+            `duration_days` INT NOT NULL,
+            `is_active` BOOLEAN DEFAULT TRUE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    // Table for pending file edits
-    $sql_pending_edits = "
-    CREATE TABLE IF NOT EXISTS pending_edits (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        admin_id BIGINT NOT NULL,
-        batch_code VARCHAR(10) NOT NULL,
-        original_file_id INT NOT NULL,
-        edit_type ENUM('caption', 'replace', 'delete') NOT NULL,
-        new_value TEXT,
-        new_file_type VARCHAR(50),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (original_file_id) REFERENCES files(id) ON DELETE CASCADE
-    );";
+        // درج پلن‌های اشتراک نمونه
+        "INSERT IGNORE INTO `payment_plans` (`id`, `name`, `price`, `duration_days`, `is_active`) VALUES
+            (1, 'اشتراک ۱ ماهه', 10000, 30, 1),
+            (2, 'اشتراک ۳ ماهه', 25000, 90, 1),
+            (3, 'اشتراک ۶ ماهه', 45000, 180, 1),
+            (4, 'اشتراک ۱ ساله', 80000, 365, 1),
+            (5, 'پلن غیرفعال ۱', 0, 0, 0),
+            (6, 'پلن غیرفعال ۲', 0, 0, 0);",
 
+        // جدول تراکنش‌ها (transactions)
+        // برای لاگ کردن تمام پرداخت‌های موفق
+        "CREATE TABLE IF NOT EXISTS `transactions` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `user_id` BIGINT NOT NULL,
+            `plan_id` INT NOT NULL,
+            `amount` INT NOT NULL,
+            `reference_id` VARCHAR(255) NOT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    $pdo->exec($sql_users);
-    echo "Table 'users' created or already exists.\n";
-    $pdo->exec($sql_settings);
-    echo "Table 'settings' created or already exists.\n";
-    $pdo->exec($sql_files);
-    echo "Table 'files' created or already exists.\n";
-    $pdo->exec($sql_user_files);
-    echo "Table 'user_files' created or already exists.\n";
-    $pdo->exec($sql_folders);
-    echo "Table 'folders' created or already exists.\n";
-    $pdo->exec($sql_folder_files);
-    echo "Table 'folder_files' created or already exists.\n";
-    $pdo->exec($sql_admins);
-    echo "Table 'admins' created or already exists.\n";
-    $pdo->exec($sql_pending_edits);
-    echo "Table 'pending_edits' created or already exists.\n";
+        // جدول تنظیمات تعاملات اجباری (forced_settings)
+        "CREATE TABLE IF NOT EXISTS `forced_settings` (
+            `id` INT PRIMARY KEY DEFAULT 1,
+            `join_active` BOOLEAN DEFAULT FALSE,
+            `seen_active` BOOLEAN DEFAULT FALSE,
+            `seen_channel` VARCHAR(255) NULL,
+            `seen_post_count` INT DEFAULT 5,
+            `reaction_active` BOOLEAN DEFAULT FALSE,
+            `reaction_channel` VARCHAR(255) NULL,
+            `reaction_post_count` INT DEFAULT 5
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    // Table for subscription plans
-    $sql_subscriptions = "
-    CREATE TABLE IF NOT EXISTS subscriptions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        price INT NOT NULL,
-        duration_days INT NOT NULL,
-        is_active BOOLEAN DEFAULT TRUE
-    );";
-    $pdo->exec($sql_subscriptions);
-    echo "Table 'subscriptions' created or already exists.\n";
+        "INSERT IGNORE INTO `forced_settings` (`id`) VALUES (1);",
 
-    // Table for payment settings
-    $sql_payment_settings = "
-    CREATE TABLE IF NOT EXISTS payment_settings (
-        id INT PRIMARY KEY DEFAULT 1,
-        active_gateway ENUM('zarinpal', 'ziball') DEFAULT 'zarinpal',
-        zarinpal_merchant_id VARCHAR(255) NULL,
-        ziball_merchant_id VARCHAR(255) NULL,
-        subscription_message TEXT NULL,
-        free_downloads_count INT DEFAULT 0
-    );";
-    $pdo->exec($sql_payment_settings);
-    echo "Table 'payment_settings' created or already exists.\n";
+        // جدول کانال‌های عضویت اجباری (forced_join_channels)
+        "CREATE TABLE IF NOT EXISTS `forced_join_channels` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `channel_identifier` VARCHAR(255) NOT NULL UNIQUE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;",
 
-    // Insert default settings if not present
-    $stmt = $pdo->query("SELECT COUNT(*) FROM settings");
-    if ($stmt->fetchColumn() == 0) {
-        $default_start_text = "⭐️ Welcome<b> « {first_name} »</b>⭐️\r\n\r\n<b>▫️ ID :</b> <code>{user_id}</code>\r\n<b>🗓 Join Date :</b> <u>{join_date}</u>\r\n\r\n<b>📥 Downloads :</b> <code>{download_count}</code>\r\n\r\n🔲 TIME: <b>{time}</b>\r\n🇮🇷 Date: <b>{date}</b>";
-        $pdo->prepare("INSERT INTO settings (starttext) VALUES (?)")->execute([$default_start_text]);
-        echo "Default settings inserted.\n";
+        // جدول تبلیغات (ads)
+        "CREATE TABLE IF NOT EXISTS `ads` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `type` ENUM('text', 'photo', 'video', 'document', 'audio', 'voice') NOT NULL,
+            `file_id` VARCHAR(255) NULL,
+            `caption` TEXT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci;"
+    ];
+
+    // اجرای تک تک دستورات SQL
+    foreach ($sql_commands as $command) {
+        $pdo->exec($command);
+        // استخراج نام جدول از دستور برای نمایش پیام موفقیت‌آمیز
+        if (preg_match('/CREATE TABLE IF NOT EXISTS `(\w+)`/', $command, $matches)) {
+            $table_name = $matches[1];
+            echo "<p>✅ جدول `{$table_name}` با موفقیت ایجاد شد (یا از قبل وجود داشت).</p>";
+        }
     }
 
-    // Insert default payment settings
-    $stmt_payment = $pdo->query("SELECT COUNT(*) FROM payment_settings");
-    if ($stmt_payment->fetchColumn() == 0) {
-        $pdo->exec("INSERT INTO payment_settings (id, subscription_message) VALUES (1, 'لطفاً یکی از پلن‌های اشتراک زیر را برای خرید انتخاب کنید:')");
-        echo "Default payment settings inserted.\n";
-    }
-
-    // Tables for Forced Interaction
-    $sql_forced_join = "
-    CREATE TABLE IF NOT EXISTS forced_join_channels (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        channel_id VARCHAR(255) NOT NULL UNIQUE,
-        invite_link VARCHAR(255) NOT NULL,
-        type ENUM('public', 'private', 'custom_link') NOT NULL
-    );";
-
-    $sql_forced_interaction = "
-    CREATE TABLE IF NOT EXISTS forced_interaction_settings (
-        name VARCHAR(50) PRIMARY KEY,
-        is_active TINYINT(1) NOT NULL DEFAULT 0,
-        channel_username VARCHAR(255) NULL,
-        post_count INT NOT NULL DEFAULT 5,
-        fake_timer_seconds INT NOT NULL DEFAULT 10
-    );";
-
-    $pdo->exec($sql_forced_join);
-    echo "Table 'forced_join_channels' created or already exists.\n";
-    $pdo->exec($sql_forced_interaction);
-    echo "Table 'forced_interaction_settings' created or already exists.\n";
-
-    // Insert default settings for seen and reaction
-    $pdo->exec("INSERT IGNORE INTO forced_interaction_settings (name, is_active, channel_username, post_count, fake_timer_seconds) VALUES
-        ('forced_seen', 0, NULL, 5, 15),
-        ('forced_reaction', 0, NULL, 5, 15);");
-    echo "Default forced interaction settings inserted.\n";
-
+    echo "<hr><h2>🎉 تمام جداول با موفقیت ساخته شدند!</h2>";
+    echo "<p style='color:orange;'><b>مهم:</b> لطفاً برای امنیت بیشتر، اکنون این فایل (`install.php`) را از هاست خود حذف کنید.</p>";
 
 } catch (PDOException $e) {
-    die("Database installation failed: " . $e->getMessage());
+    // در صورت بروز هرگونه خطا در اتصال یا اجرای دستورات، پیغام خطا نمایش داده می‌شود.
+    die("<p style='color:red;'>❌ <b>خطای دیتابیس:</b> ". $e->getMessage() . "</p>");
 }
-
-echo "Installation script finished successfully.\n";
+?>

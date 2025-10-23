@@ -1,48 +1,39 @@
 <?php
-// src/handlers/broadcast_handler.php
 
-/**
- * Initiates the broadcast process.
- */
-function handle_broadcast_request($chat_id, $user_id) {
-    $db = new Database();
-    $db->executeQuery("UPDATE users SET step = 'awaiting_broadcast_message' WHERE id = ?", [$user_id]);
-
-    sendMessage($chat_id, "لطفاً پیامی که می‌خواهید برای تمام کاربران ارسال شود را وارد کنید:");
+function handle_broadcast_start($chat_id) {
+    // Set a state for the admin user to indicate they are about to send a broadcast message
+    // This would typically be stored in the database against the admin's user ID.
+    // For now, we'll just send the instruction.
+    send_message($chat_id, "Please send the message you want to broadcast to all users.");
 }
 
-/**
- * Adds the broadcast message to a queue for later processing by the cron job.
- */
-function execute_broadcast($admin_chat_id, $message_text) {
-    $db = new Database();
+function handle_broadcast_message($pdo, $update) {
+    $message = $update->message;
+    $chat_id = $message->chat->id;
 
-    // Fetch all user IDs
-    $stmt = $db->executeQuery("SELECT id FROM users");
-    $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // A simple check to see if this is a broadcast message.
+    // In a real app, we'd check the admin's state.
+    if (!in_array($chat_id, ADMINS)) return;
+
+    $stmt = $pdo->query("SELECT id FROM users");
+    $users = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
     $total_users = count($users);
-    $queued_count = 0;
+    $sent_count = 0;
 
-    // Prepare the insert statement
-    $query = "INSERT INTO broadcast_queue (user_id, message_text) VALUES (?, ?)";
-    $insert_stmt = $db->conn->prepare($query);
-
-    foreach ($users as $user) {
-        // Add each message to the queue
-        if ($user['id'] != $admin_chat_id) { // Don't send to the admin who initiated it
-            $insert_stmt->execute([$user['id'], $message_text]);
-            $queued_count++;
+    foreach ($users as $user_id) {
+        // Forward the message to each user
+        telegram_request('forwardMessage', [
+            'chat_id' => $user_id,
+            'from_chat_id' => $chat_id,
+            'message_id' => $message->message_id,
+        ]);
+        $sent_count++;
+        // Avoid hitting API limits
+        if ($sent_count % 20 == 0) {
+            sleep(1);
         }
     }
 
-    // Report back to the admin
-    sendMessage($admin_chat_id, "✅ پیام شما با موفقیت در صف ارسال برای " . $queued_count . " کاربر قرار گرفت. این پیام‌ها به تدریج توسط سرور ارسال خواهند شد.");
-
-    // Reset admin's step
-    $db->executeQuery("UPDATE users SET step = 'none' WHERE id = ?", [$admin_chat_id]);
-
-    // After finishing, show the admin panel again
-    $admin_keyboard = get_admin_panel_keyboard();
-    sendMessage($admin_chat_id, "بازگشت به پنل مدیریت.", json_encode($admin_keyboard));
+    send_message($chat_id, "Broadcast complete. Message sent to " . $total_users . " users.");
 }

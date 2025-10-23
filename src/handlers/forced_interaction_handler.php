@@ -1,311 +1,271 @@
 <?php
 // src/handlers/forced_interaction_handler.php
+// این فایل مسئولیت مدیریت تمام منطق مربوط به تعاملات اجباری را بر عهده دارد.
+// این موارد شامل: عضویت اجباری (Forced Join)، بازدید اجباری (Forced Seen)
+// و واکنش اجباری (Forced Reaction) می‌شوند.
 
-require_once __DIR__ . '/../includes/database.php';
-require_once __DIR__ . '/../includes/telegram_api.php';
-require_once __DIR__ . '/../includes/utils.php';
+require_once __DIR__ . '/../includes/helpers.php';
 
-function handle_forced_interaction_settings($chat_id) {
+/**
+ * منوی اصلی مدیریت تعاملات اجباری را به ادمین نمایش می‌دهد.
+ * @param PDO $pdo آبجکت اتصال به دیتابیس
+ * @param int $chat_id شناسه چت ادمین
+ * @param int|null $message_id شناسه پیام برای ویرایش
+ */
+function show_forced_interaction_menu($pdo, $chat_id, $message_id = null) {
+    // دریافت تنظیمات فعلی از جدول 'forced_settings'
+    $stmt = $pdo->query("SELECT * FROM forced_settings WHERE id = 1");
+    $settings = $stmt->fetch();
+
+    // تعیین وضعیت فعلی هر قابلیت برای نمایش در دکمه‌ها
+    $join_status = $settings['join_active'] ? '✅ فعال' : '❌ غیرفعال';
+    $seen_status = $settings['seen_active'] ? '✅ فعال' : '❌ غیرفعال';
+    $reaction_status = $settings['reaction_active'] ? '✅ فعال' : '❌ غیرفعال';
+
+    $text = "👁‍🗨 <b>مدیریت بازدید و عضویت اجباری</b>\n\n" .
+            "در این بخش می‌توانید تنظیمات مربوط به هر یک از قابلیت‌های زیر را مدیریت کنید.";
+
+    // ساخت کیبورد شیشه‌ای با وضعیت فعلی هر قابلیت
     $keyboard = [
-        'keyboard' => [
-            [['text' => '🔐 مدیریت عضویت اجباری']],
-            [['text' => '👁️‍🗨️ مدیریت بازدید اجباری'], ['text' => '👌🏻 مدیریت واکنش اجباری']],
-            [['text' => 'بازگشت به پنل ادمین 🔙']],
-        ],
-        'resize_keyboard' => true,
-    ];
-    sendMessage($chat_id, "به بخش تنظیمات تعامل اجباری خوش آمدید.", json_encode($keyboard));
-}
-
-function handle_forced_seen_management($chat_id) {
-    global $db;
-    $settings = get_interaction_settings('seen');
-
-    $status_text = $settings['is_enabled'] ? 'فعال ✅' : 'غیرفعال ❌';
-    $channel_text = $settings['channel_id'] ?: 'تنظیم نشده';
-    $post_count_text = $settings['post_count'] . ' پست آخر';
-    $wait_time_text = $settings['wait_time'] . ' ثانیه';
-
-    $keyboard = [
-        'inline_keyboard' => [
-            [['text' => 'دستورات 🔸', 'callback_data' => 'none'], ['text' => '🔻 تغییر وضعیت 🔻', 'callback_data' => 'none']],
-            [['text' => '👁 وضعیت بازدید اجباری:', 'callback_data' => 'none'], ['text' => $status_text, 'callback_data' => 'toggle_seen']],
-            [['text' => '📢 کانال بازدید اجباری:', 'callback_data' => 'none'], ['text' => $channel_text, 'callback_data' => 'set_seen_channel']],
-            [['text' => '♾ تعداد بازدید اجباری:', 'callback_data' => 'none'], ['text' => $post_count_text, 'callback_data' => 'set_seen_count']],
-            [['text' => '🕰 تایم انتظار:', 'callback_data' => 'none'], ['text' => $wait_time_text, 'callback_data' => 'set_seen_time']]
-        ]
+        [['text' => '🔐 مدیریت عضویت اجباری (' . $join_status . ')', 'callback_data' => 'fi_join_menu']],
+        [['text' => '👁 مدیریت بازدید اجباری (' . $seen_status . ')', 'callback_data' => 'fi_seen_menu']],
+        [['text' => '👌🏻 مدیریت واکنش اجباری (' . $reaction_status . ')', 'callback_data' => 'fi_reaction_menu']],
+        [['text' => '🔙 بازگشت به منوی اصلی', 'callback_data' => 'back_to_main_menu']] // فرض بر اینکه callback برای بازگشت وجود دارد
     ];
 
-    sendMessage($chat_id, "👁 وضعیت بازدید اجباری کانال:", json_encode($keyboard));
-}
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
 
-function handle_forced_reaction_management($chat_id) {
-    // This will be similar to the seen management
-    sendMessage($chat_id, "این بخش به زودی پیاده‌سازی می‌شود.");
-}
-
-function get_interaction_settings($type) {
-    global $db;
-    $default_settings = [
-        'is_enabled' => false,
-        'channel_id' => null,
-        'post_count' => 5, // Default value
-        'wait_time' => 10 // Default value in seconds
-    ];
-
-    $stmt = $db->executeQuery("SELECT * FROM forced_interaction_settings WHERE type = ?", [$type]);
-    $db_settings = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$db_settings) {
-        return $default_settings;
+    // ارسال یا ویرایش پیام
+    if ($message_id) {
+        edit_message_text($chat_id, $message_id, $text, $reply_markup);
+    } else {
+        send_message($chat_id, $text, $reply_markup);
     }
-
-    return [
-        'is_enabled' => (bool)$db_settings['is_enabled'],
-        'channel_id' => $db_settings['channel_id'],
-        'post_count' => $db_settings['post_count'] ?? $default_settings['post_count'],
-        'wait_time' => $db_settings['wait_time'] ?? $default_settings['wait_time']
-    ];
 }
 
+/**
+ * این تابع به عنوان یک مسیریاب برای تمام callbackهای مربوط به این بخش عمل می‌کند.
+ * @param PDO $pdo
+ * @param stdClass $callback_query
+ */
+function handle_forced_interaction_callback($pdo, $callback_query) {
+    $chat_id = $callback_query->message->chat->id;
+    $message_id = $callback_query->message->message_id;
+    $data = $callback_query->data;
 
-function handle_forced_join_management($chat_id) {
-    $keyboard = [
-        'keyboard' => [
-            [['text' => 'افزودن کانال ➕']],
-            [['text' => 'لیست کانال‌ها 📋']],
-            [['text' => 'بازگشت به تنظیمات تعامل 🔙']],
-        ],
-        'resize_keyboard' => true,
-    ];
-    sendMessage($chat_id, "به بخش مدیریت عضویت اجباری خوش آمدید.", json_encode($keyboard));
+    // --- مسیریابی کلی ---
+    if ($data === 'fi_back_to_main') {
+        // در اینجا باید به منوی اصلی ادمین بازگردیم.
+        // فعلاً برای سادگی، همین منو را دوباره نمایش می‌دهیم.
+        show_forced_interaction_menu($pdo, $chat_id, $message_id);
+    }
+    // --- بخش عضویت اجباری (Join) ---
+    elseif ($data === 'fi_join_menu' || $data === 'back_to_join_menu') {
+        show_forced_join_menu($pdo, $chat_id, $message_id);
+    } elseif ($data === 'fi_toggle_join') {
+        $pdo->query("UPDATE forced_settings SET join_active = NOT join_active WHERE id = 1");
+        answer_callback_query($callback_query->id, 'وضعیت عضویت اجباری تغییر کرد.');
+        show_forced_join_menu($pdo, $chat_id, $message_id);
+    } elseif ($data === 'fi_add_channel') {
+        set_user_state($chat_id, 'adding_forced_join_channel');
+        send_message($chat_id, 'لطفا شناسه کانال را ارسال کنید (مثلا @channel_name یا -100123456789).');
+        answer_callback_query($callback_query->id);
+    } elseif (strpos($data, 'fi_remove_channel_') === 0) {
+        $channel_id = str_replace('fi_remove_channel_', '', $data);
+        $stmt = $pdo->prepare("DELETE FROM forced_join_channels WHERE id = ?");
+        $stmt->execute([$channel_id]);
+        answer_callback_query($callback_query->id, 'کانال با موفقیت حذف شد.');
+        show_forced_join_menu($pdo, $chat_id, $message_id);
+    }
+    // --- بخش بازدید اجباری (Seen) ---
+    elseif ($data === 'fi_seen_menu' || $data === 'back_to_seen_menu') {
+        show_forced_seen_menu($pdo, $chat_id, $message_id);
+    } elseif ($data === 'fi_toggle_seen') {
+        // با فعال کردن بازدید، واکنش غیرفعال می‌شود تا تداخل ایجاد نکنند.
+        $pdo->query("UPDATE forced_settings SET seen_active = NOT seen_active, reaction_active = 0 WHERE id = 1");
+        answer_callback_query($callback_query->id, 'وضعیت بازدید اجباری تغییر کرد.');
+        show_forced_seen_menu($pdo, $chat_id, $message_id);
+    } elseif ($data === 'fi_edit_seen_channel') {
+        set_user_state($chat_id, 'editing_seen_channel');
+        send_message($chat_id, 'لطفا شناسه کانال جدید برای بازدید اجباری را وارد کنید (مثلا @channel_name).');
+        answer_callback_query($callback_query->id);
+    } elseif ($data === 'fi_edit_seen_count') {
+        set_user_state($chat_id, 'editing_seen_count');
+        send_message($chat_id, 'لطفا تعداد پست‌هایی که باید بازدید شود را وارد کنید (عدد بین 1 تا 50).');
+        answer_callback_query($callback_query->id);
+    }
+    // --- بخش واکنش اجباری (Reaction) ---
+    elseif ($data === 'fi_reaction_menu' || $data === 'back_to_reaction_menu') {
+        show_forced_reaction_menu($pdo, $chat_id, $message_id);
+    } elseif ($data === 'fi_toggle_reaction') {
+        // با فعال کردن واکنش، بازدید غیرفعال می‌شود.
+        $pdo->query("UPDATE forced_settings SET reaction_active = NOT reaction_active, seen_active = 0 WHERE id = 1");
+        answer_callback_query($callback_query->id, 'وضعیت واکنش اجباری تغییر کرد.');
+        show_forced_reaction_menu($pdo, $chat_id, $message_id);
+    } elseif ($data === 'fi_edit_reaction_channel') {
+        set_user_state($chat_id, 'editing_reaction_channel');
+        send_message($chat_id, 'لطفا شناسه کانال جدید برای واکنش اجباری را وارد کنید (مثلا @channel_name).');
+        answer_callback_query($callback_query->id);
+    } elseif ($data === 'fi_edit_reaction_count') {
+        set_user_state($chat_id, 'editing_reaction_count');
+        send_message($chat_id, 'لطفا تعداد پست‌هایی که باید واکنش داده شود را وارد کنید (عدد بین 1 تا 50).');
+        answer_callback_query($callback_query->id);
+    }
 }
 
-function handle_list_channels($chat_id, $message_id = null) {
-    global $db;
-    $channels = $db->query("SELECT * FROM forced_join_channels")->fetchAll(PDO::FETCH_ASSOC);
+/**
+ * منوی مدیریت عضویت اجباری را نمایش می‌دهد.
+ */
+function show_forced_join_menu($pdo, $chat_id, $message_id) {
+    $stmt = $pdo->query("SELECT join_active FROM forced_settings WHERE id = 1");
+    $status = $stmt->fetchColumn() ? '✅ فعال' : '❌ غیرفعال';
 
-    $text = 'لیست کانال‌های عضویت اجباری:';
-    $inline_keyboard = [];
+    $text = "🔐 <b>مدیریت عضویت اجباری</b>\n\n" .
+            "<b>وضعیت فعلی:</b> {$status}\n\n" .
+            "لیست کانال‌هایی که کاربر برای استفاده از ربات باید در آن‌ها عضو باشد:";
+
+    $stmt = $pdo->query("SELECT * FROM forced_join_channels");
+    $channels = $stmt->fetchAll();
+
+    $keyboard = [[['text' => '🔄 تغییر وضعیت (' . $status . ')', 'callback_data' => 'fi_toggle_join']]];
 
     if (empty($channels)) {
-        $text = "هیچ کانالی برای عضویت اجباری تنظیم نشده است.";
+        $text .= "\n\nهیچ کانالی تنظیم نشده است.";
     } else {
         foreach ($channels as $channel) {
-            $url_id = str_starts_with($channel['channel_id'], '@') ? substr($channel['channel_id'], 1) : 'c/' . substr($channel['channel_id'], 4);
-            $inline_keyboard[] = [
-                ['text' => $channel['channel_title'], 'url' => 'https://t.me/' . $url_id],
-                ['text' => 'حذف ❌', 'callback_data' => 'delete_channel_' . $channel['id']]
-            ];
+            $keyboard[] = [['text' => "📢 {$channel['channel_identifier']}", 'callback_data' => 'fi_noop'], ['text' => '❌ حذف', 'callback_data' => 'fi_remove_channel_' . $channel['id']]];
         }
     }
 
-    $keyboard = json_encode(['inline_keyboard' => $inline_keyboard]);
+    $keyboard[] = [['text' => '➕ افزودن کانال', 'callback_data' => 'fi_add_channel']];
+    $keyboard[] = [['text' => '🔙 بازگشت', 'callback_data' => 'fi_back_to_main']];
 
-    if ($message_id) {
-        editMessageText($chat_id, $message_id, $text, $keyboard);
-    } else {
-        sendMessage($chat_id, $text, $keyboard);
-    }
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
+    edit_message_text($chat_id, $message_id, $text, $reply_markup);
 }
 
-function handle_delete_channel($chat_id, $message_id, $callback_data) {
-    global $db;
-    $channel_id_to_delete = substr($callback_data, strlen('delete_channel_'));
+/**
+ * منوی مدیریت بازدید اجباری را نمایش می‌دهد.
+ */
+function show_forced_seen_menu($pdo, $chat_id, $message_id) {
+    $settings = $pdo->query("SELECT seen_active, seen_channel, seen_post_count FROM forced_settings WHERE id = 1")->fetch();
+    $status = $settings['seen_active'] ? '✅ فعال' : '❌ غیرفعال';
+    $channel = $settings['seen_channel'] ?: 'تنظیم نشده';
+    $count = $settings['seen_post_count'];
 
-    $db->executeQuery("DELETE FROM forced_join_channels WHERE id = ?", [$channel_id_to_delete]);
+    $text = "👁 <b>مدیریت بازدید اجباری (سین)</b>\n\n" .
+            "<b>وضعیت:</b> {$status}\n" .
+            "<b>کانال:</b> {$channel}\n" .
+            "<b>تعداد پست:</b> {$count}\n\n" .
+            "در صورت فعال بودن، کاربر باید {$count} پست آخر کانال {$channel} را بازدید کند.";
 
-    // Refresh the list
-    handle_list_channels($chat_id, $message_id);
+    $keyboard = [
+        [['text' => '🔄 تغییر وضعیت (' . $status . ')', 'callback_data' => 'fi_toggle_seen']],
+        [['text' => 'ቻ تغییر کانال', 'callback_data' => 'fi_edit_seen_channel']],
+        [['text' => '🔢 تغییر تعداد پست', 'callback_data' => 'fi_edit_seen_count']],
+        [['text' => '🔙 بازگشت', 'callback_data' => 'fi_back_to_main']],
+    ];
+
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
+    edit_message_text($chat_id, $message_id, $text, $reply_markup);
 }
 
-function handle_add_channel_request($chat_id, $user_id) {
-    global $db;
-    $db->setUserStep($user_id, 'awaiting_channel_forward');
-    sendMessage($chat_id, "لطفا یک پیام از کانال مورد نظر به اینجا فوروارد کنید.\n\n⚠️ ربات باید در کانال ادمین باشد.");
+/**
+ * منوی مدیریت واکنش اجباری را نمایش می‌دهد.
+ */
+function show_forced_reaction_menu($pdo, $chat_id, $message_id) {
+    $settings = $pdo->query("SELECT reaction_active, reaction_channel, reaction_post_count FROM forced_settings WHERE id = 1")->fetch();
+    $status = $settings['reaction_active'] ? '✅ فعال' : '❌ غیرفعال';
+    $channel = $settings['reaction_channel'] ?: 'تنظیم نشده';
+    $count = $settings['reaction_post_count'];
+
+    $text = "👌🏻 <b>مدیریت واکنش اجباری (ری‌اکشن)</b>\n\n" .
+            "<b>وضعیت:</b> {$status}\n" .
+            "<b>کانال:</b> {$channel}\n" .
+            "<b>تعداد پست:</b> {$count}\n\n" .
+            "در صورت فعال بودن، کاربر باید به {$count} پست آخر کانال {$channel} واکنش نشان دهد.";
+
+    $keyboard = [
+        [['text' => '🔄 تغییر وضعیت (' . $status . ')', 'callback_data' => 'fi_toggle_reaction']],
+        [['text' => 'ቻ تغییر کانال', 'callback_data' => 'fi_edit_reaction_channel']],
+        [['text' => '🔢 تغییر تعداد پست', 'callback_data' => 'fi_edit_reaction_count']],
+        [['text' => '🔙 بازگشت', 'callback_data' => 'fi_back_to_main']],
+    ];
+
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
+    edit_message_text($chat_id, $message_id, $text, $reply_markup);
 }
 
-function handle_channel_forward_received($chat_id, $user_id, $message) {
-    global $db;
+/**
+ * پاسخ ادمین برای ویرایش تنظیمات تعاملات اجباری را پردازش می‌کند.
+ */
+function handle_forced_interaction_edit($pdo, $update) {
+    $chat_id = $update->message->chat->id;
+    $text = $update->message->text;
+    $state = get_user_state($chat_id);
 
-    if (!isset($message['forward_from_chat']) || $message['forward_from_chat']['type'] !== 'channel') {
-        sendMessage($chat_id, "خطا: لطفا یک پیام از *کانال* فوروارد کنید.");
+    $field_map = [
+        'editing_seen_channel' => ['column' => 'seen_channel', 'type' => 'string', 'menu' => 'show_forced_seen_menu'],
+        'editing_seen_count' => ['column' => 'seen_post_count', 'type' => 'integer', 'menu' => 'show_forced_seen_menu'],
+        'editing_reaction_channel' => ['column' => 'reaction_channel', 'type' => 'string', 'menu' => 'show_forced_reaction_menu'],
+        'editing_reaction_count' => ['column' => 'reaction_post_count', 'type' => 'integer', 'menu' => 'show_forced_reaction_menu'],
+    ];
+
+    $column = $field_map[$state]['column'];
+    $type = $field_map[$state]['type'];
+    $menu_function = $field_map[$state]['menu'];
+    $value = trim($text);
+
+    // اعتبارسنجی ورودی
+    if ($type === 'integer') {
+        if (!is_numeric($value) || $value < 1 || $value > 50) {
+            send_message($chat_id, 'مقدار نامعتبر است. لطفا یک عدد بین 1 تا 50 وارد کنید.');
+            return;
+        }
+    } elseif ($type === 'string' && strpos($value, '@') !== 0) {
+        send_message($chat_id, 'شناسه کانال نامعتبر است. باید با @ شروع شود.');
         return;
     }
 
-    $channel_id = $message['forward_from_chat']['id'];
-    $channel_title = $message['forward_from_chat']['title'];
+    // به‌روزرسانی دیتابیس
+    $stmt = $pdo->prepare("UPDATE forced_settings SET {$column} = ? WHERE id = 1");
+    $stmt->execute([$value]);
 
-    // Check if channel already exists
-    $stmt = $db->executeQuery("SELECT id FROM forced_join_channels WHERE channel_id = ?", [$channel_id]);
-    if ($stmt->fetch()) {
-        sendMessage($chat_id, "این کانال قبلا اضافه شده است.");
-        $db->setUserStep($user_id, 'none');
+    send_message($chat_id, '✅ تنظیمات با موفقیت به‌روزرسانی شد.');
+    clear_user_state($chat_id);
+
+    // نمایش مجدد منوی مربوطه
+    $menu_function($pdo, $chat_id, null);
+}
+
+/**
+ * پاسخ ادمین برای افزودن کانال عضویت اجباری را پردازش می‌کند.
+ */
+function handle_add_forced_join_channel($pdo, $update) {
+    $chat_id = $update->message->chat->id;
+    $channel_identifier = trim($update->message->text);
+
+    if (empty($channel_identifier) || (strpos($channel_identifier, '@') !== 0 && strpos($channel_identifier, '-100') !== 0)) {
+        send_message($chat_id, 'شناسه کانال نامعتبر است. باید با @ یا -100 شروع شود.');
+        clear_user_state($chat_id);
         return;
     }
 
-    // Check if bot is admin in the channel
-    $bot_info = telegram_api('getMe');
-    if (!$bot_info || !$bot_info['ok']) {
-        sendMessage($chat_id, "خطا در دریافت اطلاعات ربات. لطفا بعدا تلاش کنید.");
-        return;
-    }
-    $bot_id = $bot_info['result']['id'];
-
-    $admins = telegram_api('getChatAdministrators', ['chat_id' => $channel_id]);
-    $is_bot_admin = false;
-    if ($admins && $admins['ok']) {
-        foreach ($admins['result'] as $admin) {
-            if ($admin['user']['id'] == $bot_id) {
-                $is_bot_admin = true;
-                break;
-            }
+    try {
+        $stmt = $pdo->prepare("INSERT INTO forced_join_channels (channel_identifier) VALUES (?)");
+        $stmt->execute([$channel_identifier]);
+        send_message($chat_id, '✅ کانال با موفقیت افزوده شد.');
+    } catch (PDOException $e) {
+        // اگر کانال از قبل وجود داشته باشد (به دلیل UNIQUE بودن ستون)، پیام خطا نمایش داده می‌شود
+        if ($e->errorInfo[1] == 1062) {
+            send_message($chat_id, '⚠️ این کانال قبلاً اضافه شده است.');
+        } else {
+            send_message($chat_id, 'خطایی در افزودن کانال رخ داد.');
+            error_log("Forced Join Add Error: " . $e->getMessage());
         }
     }
 
-    if (!$is_bot_admin) {
-        sendMessage($chat_id, "خطا: ربات در کانال `{$channel_title}` ادمین نیست. لطفا ربات را ادمین کرده و دوباره تلاش کنید.");
-        return;
-    }
-
-    // Add channel to database
-    $db->executeQuery("INSERT INTO forced_join_channels (channel_id, channel_title) VALUES (?, ?)", [$channel_id, $channel_title]);
-    $db->setUserStep($user_id, 'none');
-
-    sendMessage($chat_id, "کانال `{$channel_title}` با موفقیت به لیست عضویت اجباری اضافه شد.");
-    handle_forced_join_management($chat_id); // Show the menu again
+    clear_user_state($chat_id);
+    show_forced_join_menu($pdo, $chat_id, null);
 }
-
-function handle_toggle_forced_join($chat_id) {
-    global $db;
-    // Get current status
-    $stmt = $db->executeQuery("SELECT is_enabled FROM forced_interaction_settings WHERE type = 'join'");
-    $setting = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // If setting doesn't exist, create it and set to true (enabled)
-    if (!$setting) {
-        $db->executeQuery("INSERT INTO forced_interaction_settings (type, is_enabled) VALUES ('join', 1)");
-        $new_status = true;
-    } else {
-        // Toggle the status
-        $new_status = !$setting['is_enabled'];
-        $db->executeQuery("UPDATE forced_interaction_settings SET is_enabled = ? WHERE type = 'join'", [(int)$new_status]);
-    }
-
-    $status_message = $new_status ? "فعال شد" : "غیرفعال شد";
-    sendMessage($chat_id, "وضعیت عضویت اجباری با موفقیت {$status_message}.");
-
-    // Show the management menu again with updated status
-    handle_forced_join_management($chat_id);
-}
-
-function handle_change_join_text_request($chat_id, $user_id) {
-    global $db;
-    $db->setUserStep($user_id, 'awaiting_join_text');
-
-    // Get current text to show it to the admin
-    $stmt = $db->executeQuery("SELECT message FROM forced_interaction_settings WHERE type = 'join'");
-    $setting = $stmt->fetch(PDO::FETCH_ASSOC);
-    $current_text = ($setting && $setting['message']) ? $setting['message'] : "هنوز متنی تنظیم نشده است.";
-
-    sendMessage($chat_id, "متن فعلی:\n`{$current_text}`\n\nلطفا متن جدید برای پیام عضویت اجباری را ارسال کنید:");
-}
-
-function handle_join_text_received($chat_id, $user_id, $text) {
-    global $db;
-
-    // Ensure the 'join' setting row exists, then update it.
-    $db->executeQuery("INSERT INTO forced_interaction_settings (type, message) VALUES ('join', ?) ON DUPLICATE KEY UPDATE message = ?", [$text, $text]);
-
-    $db->setUserStep($user_id, 'none');
-
-    sendMessage($chat_id, "متن عضویت اجباری با موفقیت به‌روزرسانی شد.");
-    handle_forced_join_management($chat_id);
-}
-
-
-function check_forced_join($user_id) {
-    // TODO: Check if user is a member of all required channels.
-    // Returns true if they are, otherwise returns an array of channels they need to join.
-    return true;
-}
-
-function check_forced_seen($user_id, $file_code) {
-    global $db;
-    $settings = get_interaction_settings('seen');
-
-    // If the feature is disabled, the user can proceed.
-    if (!$settings['is_enabled']) {
-        return true;
-    }
-
-    // Check the user's cooldown timer.
-    $user_stmt = $db->executeQuery("SELECT interaction_cooldown_until FROM users WHERE id = ?", [$user_id]);
-    $user_data = $user_stmt->fetch(PDO::FETCH_ASSOC);
-
-    // If the timer is still active, the check fails.
-    if ($user_data && strtotime($user_data['interaction_cooldown_until']) > time()) {
-        sendMessage($user_id, "❌ هنوز پست های کانال را مشاهده نکرده اید");
-        return false;
-    }
-
-    // If the timer has expired or does not exist, initiate the check.
-    // Set a new cooldown and send instructions to the user.
-    $wait_time = $settings['wait_time'];
-    $new_cooldown = date('Y-m-d H:i:s', time() + $wait_time);
-    $db->executeQuery("UPDATE users SET interaction_cooldown_until = ? WHERE id = ?", [$new_cooldown, $user_id]);
-
-    $channel_link = 'https://t.me/' . $settings['channel_id'];
-    $post_count = $settings['post_count'];
-    $message_text = "🔻<b>برای مشاهده این محتوا ابتدا به کانال زیر رفته و {$post_count} پست آخر را سین کنید .</b>\r\n\r\n🔹سپس روی دکمه 'مشاهده کردم' بزنید تا پست برای شما نمایش داده شود.";
-
-    $keyboard = [
-        'inline_keyboard' => [
-            [['text' => '🆔 ورود به کانال و مشاهده پست ها', 'url' => $channel_link]],
-            [['text' => '👁 مشاهده کردم', 'callback_data' => 'confirm_seen_' . $file_code]]
-        ]
-    ];
-
-    sendMessage($user_id, $message_text, json_encode($keyboard));
-
-    // The check fails this time, but the process has been initiated for the user to pass it next time.
-    return false;
-}
-
-function check_forced_reaction($user_id, $file_code) {
-    global $db;
-    $settings = get_interaction_settings('reaction');
-
-    if (!$settings['is_enabled']) {
-        return true;
-    }
-
-    $user_stmt = $db->executeQuery("SELECT interaction_cooldown_until FROM users WHERE id = ?", [$user_id]);
-    $user_data = $user_stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($user_data && strtotime($user_data['interaction_cooldown_until']) > time()) {
-        sendMessage($user_id, "❌ هنوز روی پست های کانال ری اکشن نزده اید");
-        return false;
-    }
-
-    $wait_time = $settings['wait_time'];
-    $new_cooldown = date('Y-m-d H:i:s', time() + $wait_time);
-    $db->executeQuery("UPDATE users SET interaction_cooldown_until = ? WHERE id = ?", [$new_cooldown, $user_id]);
-
-    $channel_link = 'https://t.me/' . $settings['channel_id'];
-    $post_count = $settings['post_count'];
-    $message_text = "🔻<b>برای مشاهده این محتوا ابتدا به کانال زیر رفته و برای {$post_count} پست آخر ری اکشن بزنید.</b>\r\n\r\n🔹سپس روی دکمه 'ری اکشن زدم' بزنید تا فایل برای شما نمایش داده شود.";
-
-    $keyboard = [
-        'inline_keyboard' => [
-            [['text' => '🆔 ورود به کانال و مشاهده پست ها', 'url' => $channel_link]],
-            [['text' => '👌🏻 ری اکشن زدم', 'callback_data' => 'confirm_reaction_' . $file_code]]
-        ]
-    ];
-
-    sendMessage($user_id, $message_text, json_encode($keyboard));
-
-    return false;
-}
-
 ?>

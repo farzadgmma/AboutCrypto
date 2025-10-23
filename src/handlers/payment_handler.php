@@ -1,125 +1,125 @@
 <?php
 // src/handlers/payment_handler.php
+// این فایل مسئولیت مدیریت تمام منطق مربوط به تنظیمات پرداخت را بر عهده دارد.
 
-require_once __DIR__ . '/../includes/database.php';
-require_once __DIR__ . '/../includes/telegram_api.php';
+/**
+ * منوی اصلی تنظیمات پرداخت را به ادمین نمایش می‌دهد.
+ * @param PDO $pdo آبجکت اتصال به دیتابیس
+ * @param int $chat_id شناسه چت ادمین
+ * @param int|null $message_id شناسه پیام برای ویرایش (در صورت بازگشت از منوهای دیگر)
+ */
+function show_payment_menu($pdo, $chat_id, $message_id = null) {
+    // دریافت درگاه پرداخت فعال از دیتابیس
+    $stmt = $pdo->query("SELECT payment_gateway FROM settings WHERE id = 1");
+    $current_gateway = $stmt->fetchColumn();
 
-function handle_payment_callback($gateway, $query_params) {
-    if ($gateway === 'zarinpal') {
-        handle_zarinpal_callback($query_params);
-    } elseif ($gateway === 'ziball') {
-        handle_ziball_callback($query_params);
-    }
-}
-
-function handle_zarinpal_callback($query_params) {
-    global $db;
-    $authority = $query_params['Authority'] ?? null;
-    $status = $query_params['Status'] ?? null;
-    $user_id = $query_params['user_id'] ?? null;
-    $plan_id = $query_params['plan_id'] ?? null;
-
-    if ($status !== 'OK' || !$user_id || !$authority || !$plan_id) {
-        if ($user_id) sendMessage($user_id, "پرداخت ناموفق بود یا توسط شما لغو شد.");
-        return;
-    }
-
-    // Fetch plan details and merchant ID from DB
-    $plan_stmt = $db->executeQuery("SELECT price, duration_days FROM subscriptions WHERE id = ?", [$plan_id]);
-    $plan = $plan_stmt->fetch(PDO::FETCH_ASSOC);
-    $merchant_stmt = $db->executeQuery("SELECT zarinpal_merchant_id FROM payment_settings WHERE id = 1");
-    $merchant_id = $merchant_stmt->fetchColumn();
-
-    if (!$plan || !$merchant_id) {
-        sendMessage($user_id, "خطا در پردازش پرداخت: اطلاعات پلن یا مرچنت یافت نشد.");
-        return;
-    }
-    $amount = $plan['price'];
-
-    // Zarinpal Verification
-    $client = new SoapClient('https://www.zarinpal.com/pg/services/WebGate/wsdl', ['encoding' => 'UTF-8']);
-    $result = $client->PaymentVerification([
-        'MerchantID'     => $merchant_id,
-        'Authority'      => $authority,
-        'Amount'         => $amount,
-    ]);
-
-    if ($result->Status == 100) { // Payment is successful
-        $duration = $plan['duration_days'];
-        $expire_date = date('Y-m-d H:i:s', strtotime("+$duration days"));
-
-        $db->executeQuery("UPDATE users SET is_vip = TRUE, vip_expire_date = ? WHERE id = ?", [$expire_date, $user_id]);
-
-        sendMessage($user_id, "✅ پرداخت شما با موفقیت تایید شد. اشتراک شما تا تاریخ " . $expire_date . " فعال گردید.");
+    // تعیین نام فارسی درگاه برای نمایش
+    if ($current_gateway === 'zarinpal') {
+        $gateway_name = 'زرین‌پال';
+    } elseif ($current_gateway === 'zibal') {
+        $gateway_name = 'زیبال';
     } else {
-        sendMessage($user_id, "خطا در تایید پرداخت. کد خطا: " . $result->Status);
-    }
-}
-
-function handle_ziball_callback($query_params) {
-    global $db;
-    $success = $query_params['success'] ?? 0;
-    $track_id = $query_params['trackId'] ?? null;
-    $order_id = $query_params['orderId'] ?? null; // This should contain our user_id and plan_id
-
-    // Ziball sends orderId as a string, let's parse it
-    list($user_id, $plan_id) = explode('_', $order_id);
-
-    if ($success != 1 || !$user_id || !$plan_id || !$track_id) {
-        if ($user_id) sendMessage($user_id, "پرداخت ناموفق بود یا توسط شما لغو شد.");
-        return;
+        $gateway_name = 'تنظیم نشده';
     }
 
-    // Fetch plan details and merchant ID
-    $plan_stmt = $db->executeQuery("SELECT price, duration_days FROM subscriptions WHERE id = ?", [$plan_id]);
-    $plan = $plan_stmt->fetch(PDO::FETCH_ASSOC);
-    $merchant_stmt = $db->executeQuery("SELECT ziball_merchant_id FROM payment_settings WHERE id = 1");
-    $merchant_id = $merchant_stmt->fetchColumn();
+    $text = "💰 <b>تنظیمات پرداخت</b>\n\n" .
+            "در این بخش می‌توانید درگاه پرداخت و سایر تنظیمات مربوط به اشتراک‌ها را مدیریت کنید.\n\n" .
+            "▫️ <b>درگاه پرداخت فعلی:</b> {$gateway_name}";
 
-    if (!$plan || !$merchant_id) {
-        sendMessage($user_id, "خطا در پردازش پرداخت: اطلاعات پلن یا مرچنت یافت نشد.");
-        return;
-    }
+    $keyboard = [
+        [['text' => '💳 انتخاب درگاه پرداخت', 'callback_data' => 'select_gateway_menu']],
+        [['text' => '🗂 مدیریت طرح‌های اشتراک', 'callback_data' => 'manage_subscriptions_menu']],
+        // در آینده گزینه‌های دیگری مانند "تغییر متن خرید اشتراک" اضافه خواهد شد
+        [['text' => '🔙 بازگشت به منوی اصلی', 'callback_data' => 'back_to_main_menu']]
+    ];
 
-    // Ziball Verification
-    $curl = curl_init();
-    curl_setopt_array($curl, [
-      CURLOPT_URL => "https://gateway.zibal.ir/v1/verify",
-      CURLOPT_RETURNTRANSFER => true,
-      CURLOPT_ENCODING => "",
-      CURLOPT_MAXREDIRS => 10,
-      CURLOPT_TIMEOUT => 30,
-      CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-      CURLOPT_CUSTOMREQUEST => "POST",
-      CURLOPT_POSTFIELDS => json_encode([
-        "merchant" => $merchant_id,
-        "trackId" => $track_id,
-      ]),
-      CURLOPT_HTTPHEADER => [
-        "Content-Type: application/json"
-      ],
-    ]);
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
 
-    $response = curl_exec($curl);
-    $err = curl_error($curl);
-    curl_close($curl);
-
-    if ($err) {
-        sendMessage($user_id, "خطا در ارتباط با درگاه پرداخت.");
-        return;
-    }
-
-    $result = json_decode($response, true);
-
-    if (isset($result['result']) && $result['result'] == 100) { // Payment is successful
-        $duration = $plan['duration_days'];
-        $expire_date = date('Y-m-d H:i:s', strtotime("+$duration days"));
-
-        $db->executeQuery("UPDATE users SET is_vip = TRUE, vip_expire_date = ? WHERE id = ?", [$expire_date, $user_id]);
-
-        sendMessage($user_id, "✅ پرداخت شما با موفقیت تایید شد. اشتراک شما تا تاریخ " . $expire_date . " فعال گردید.");
+    // اگر message_id وجود داشته باشد، پیام قبلی را ویرایش می‌کند، در غیر این صورت پیام جدید ارسال می‌کند.
+    if ($message_id) {
+        edit_message_text($chat_id, $message_id, $text, $reply_markup);
     } else {
-        $error_message = $result['message'] ?? 'خطای نامشخص';
-        sendMessage($user_id, "خطا در تایید پرداخت: " . $error_message);
+        send_message($chat_id, $text, $reply_markup);
     }
 }
+
+/**
+ * این تابع callbackهای مربوط به منوی پرداخت را مدیریت می‌کند.
+ * @param PDO $pdo آبجکت اتصال به دیتابیس
+ * @param stdClass $callback_query آبجکت callback_query از تلگرام
+ */
+function handle_payment_callback($pdo, $callback_query) {
+    $chat_id = $callback_query->message->chat->id;
+    $message_id = $callback_query->message->message_id;
+    $data = $callback_query->data;
+
+    // مسیریابی بر اساس داده‌های callback
+    switch ($data) {
+        case 'select_gateway_menu':
+            show_gateway_selection_menu($pdo, $chat_id, $message_id);
+            break;
+        case 'manage_subscriptions_menu':
+            // فراخوانی تابع از کنترل‌کننده اشتراک‌ها برای نمایش منوی مدیریت
+            require_once __DIR__ . '/subscription_handler.php';
+            show_subscription_management($pdo, $chat_id, $message_id);
+            break;
+        case 'back_to_payment_menu':
+            show_payment_menu($pdo, $chat_id, $message_id);
+            break;
+        // موارد دیگر ...
+    }
+
+    // پاسخ به callback برای حذف حالت لودینگ
+    answer_callback_query($callback_query->id);
+}
+
+/**
+ * منوی انتخاب درگاه پرداخت را نمایش می‌دهد.
+ * @param PDO $pdo
+ * @param int $chat_id
+ * @param int $message_id
+ */
+function show_gateway_selection_menu($pdo, $chat_id, $message_id) {
+    $stmt = $pdo->query("SELECT payment_gateway FROM settings WHERE id = 1");
+    $current_gateway = $stmt->fetchColumn();
+
+    $text = "لطفاً درگاه پرداخت مورد نظر خود را انتخاب کنید.";
+
+    // علامت‌گذاری درگاه فعال
+    $zarinpal_text = ($current_gateway === 'zarinpal') ? '✅ زرین‌پال' : 'زرین‌پال';
+    $zibal_text = ($current_gateway === 'zibal') ? '✅ زیبال' : 'زیبال';
+
+    $keyboard = [
+        [['text' => $zarinpal_text, 'callback_data' => 'set_gateway_zarinpal']],
+        [['text' => $zibal_text, 'callback_data' => 'set_gateway_zibal']],
+        [['text' => '🔙 بازگشت', 'callback_data' => 'back_to_payment_menu']]
+    ];
+
+    $reply_markup = json_encode(['inline_keyboard' => $keyboard]);
+    edit_message_text($chat_id, $message_id, $text, $reply_markup);
+}
+
+/**
+ * درگاه پرداخت انتخاب شده توسط ادمین را در دیتابیس ذخیره می‌کند.
+ * @param PDO $pdo
+ * @param stdClass $callback_query
+ */
+function handle_gateway_selection($pdo, $callback_query) {
+    $chat_id = $callback_query->message->chat->id;
+    $message_id = $callback_query->message->message_id;
+    $data = $callback_query->data;
+
+    // استخراج نام درگاه از داده callback
+    $gateway = str_replace('set_gateway_', '', $data);
+
+    // به‌روزرسانی دیتابیس
+    $stmt = $pdo->prepare("UPDATE settings SET payment_gateway = ? WHERE id = 1");
+    $stmt->execute([$gateway]);
+
+    // نمایش پیام تایید به ادمین
+    answer_callback_query($callback_query->id, "درگاه پرداخت با موفقیت به {$gateway} تغییر یافت.");
+
+    // نمایش مجدد منوی انتخاب درگاه با حالت به‌روز شده
+    show_gateway_selection_menu($pdo, $chat_id, $message_id);
+}
+?>
