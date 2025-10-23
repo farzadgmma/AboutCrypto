@@ -40,8 +40,11 @@ function handle_start($pdo, $update) {
             ['text' => '💰 تنظیمات پرداخت'],
             ['text' => '👁‍🗨 ری اکشن/سین اجباری']
         ];
+        $admin_buttons_row3 = [
+            ['text' => '📢 تنظیم تبلیغات']
+        ];
         // اضافه کردن دکمه‌های ادمین به بالای کیبورد اصلی
-        array_unshift($keyboard, $admin_buttons_row1, $admin_buttons_row2);
+        array_unshift($keyboard, $admin_buttons_row1, $admin_buttons_row2, $admin_buttons_row3);
     }
 
     // تبدیل آرایه کیبورد به فرمت JSON برای ارسال به تلگرام

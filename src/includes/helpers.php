@@ -123,4 +123,19 @@ function register_user_if_new($pdo, $from) {
     }
 }
 
+
+/**
+ * اطلاعات کامل یک کاربر را بر اساس شناسه کاربری او از دیتابیس دریافت می‌کند.
+ *
+ * @param PDO $pdo آبجکت اتصال به دیتابیس.
+ * @param int $user_id شناسه کاربری تلگرام.
+ * @return array|false آرایه‌ای از اطلاعات کاربر یا false در صورت عدم وجود.
+ */
+function get_user_by_id($pdo, $user_id) {
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
+    $stmt->execute([$user_id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+
 ?>

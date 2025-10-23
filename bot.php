@@ -48,6 +48,32 @@ if (isset($update->message)) {
     // این تابع در فایل helpers.php قرار دارد
     register_user_if_new($pdo, $message->from);
 
+    // --- بررسی وضعیت‌های خاص کاربر قبل از مسیریابی عادی ---
+    $user_state = get_user_state($user_id);
+
+    // اگر ربات منتظر رمز عبور از کاربر باشد
+    if ($user_state && strpos($user_state, 'awaiting_password_') === 0) {
+        if ($text == 'انصراف') {
+            // بازنشانی وضعیت کاربر و نمایش منوی اصلی
+            clear_user_state($user_id);
+            // نمایش منوی اصلی از فایل start_handler.php
+            require_once __DIR__ . '/src/handlers/start_handler.php';
+            // برای نمایش مجدد منوی اصلی، از همان تابع استارت استفاده می‌کنیم
+            // متن پیام را تغییر می‌دهیم تا مشخص شود عملیات لغو شده است
+            $update->message->text = '/start'; // شبیه‌سازی دستور استارت
+            handle_start($pdo, $update);
+            send_message($user_id, "عملیات لغو شد.");
+
+        } else {
+            // پردازش رمز عبور وارد شده
+            require_once 'src/handlers/password_handler.php';
+            $file_code = str_replace('awaiting_password_', '', $user_state);
+            handle_password_submission($pdo, $user_id, $text, $file_code);
+        }
+        exit; // اجرای اسکریپت در اینجا پایان می‌یابد زیرا این یک اقدام خاص بوده است
+    }
+
+
     // مسیریابی بر اساس نوع پیام
     if (isset($message->photo) || isset($message->video) || isset($message->document) || isset($message->audio) || isset($message->voice)) {
         // اگر پیام حاوی فایل باشد، آن را به کنترل‌کننده آپلود ارسال می‌کنیم
@@ -99,6 +125,11 @@ if (isset($update->message)) {
                 show_forced_interaction_menu($pdo, $chat_id);
                 break;
 
+            case '📢 تنظیم تبلیغات':
+                require_once __DIR__ . '/src/handlers/ads_handler.php';
+                show_ads_management_menu($pdo, $chat_id);
+                break;
+
             default:
                 // اگر دستور ادمین شناخته شده نبود، آن را به عنوان یک وضعیت (state) بررسی می‌کنیم
                 handle_state_based_actions($pdo, $update);
@@ -127,6 +158,25 @@ elseif (isset($update->callback_query)) {
     elseif (strpos($data, 'fi_') === 0) {
         require_once __DIR__ . '/src/handlers/forced_interaction_handler.php';
         handle_forced_interaction_callback($pdo, $callback_query);
+    }
+    // کنترل‌کننده بررسی عضویت پس از کلیک کاربر
+    elseif (strpos($data, 'check_join_') === 0) {
+        require_once __DIR__ . '/src/handlers/download_handler.php';
+        handle_recheck_join_request($pdo, $callback_query);
+    }
+    // مربوط به پنل مدیریت تبلیغات
+    elseif (strpos($data, 'ads_') === 0) {
+        require_once __DIR__ . '/src/handlers/ads_handler.php';
+        handle_ads_callback($pdo, $callback_query);
+    }
+    // مربوط به پنل تنظیمات پرداخت
+    elseif (in_array($data, ['select_gateway_menu', 'manage_subscriptions_menu', 'back_to_payment_menu']) || strpos($data, 'set_gateway_') === 0) {
+        require_once __DIR__ . '/src/handlers/payment_handler.php';
+        if (strpos($data, 'set_gateway_') === 0) {
+            handle_gateway_selection($pdo, $callback_query);
+        } else {
+            handle_payment_callback($pdo, $callback_query);
+        }
     }
     // و سایر کنترل‌کننده‌های callback...
 }
@@ -160,6 +210,10 @@ function handle_state_based_actions($pdo, $update) {
     elseif (in_array($state, ['editing_seen_channel', 'editing_seen_count', 'editing_reaction_channel', 'editing_reaction_count'])) {
         require_once __DIR__ . '/src/handlers/forced_interaction_handler.php';
         handle_forced_interaction_edit($pdo, $update);
+    }
+    elseif ($state === 'adding_ad') {
+        require_once __DIR__ . '/src/handlers/ads_handler.php';
+        handle_add_ad($pdo, $update);
     }
     // سایر وضعیت‌ها اینجا اضافه می‌شوند...
 }

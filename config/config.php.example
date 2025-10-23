@@ -1,0 +1,46 @@
+<?php
+// config.php.example
+// این یک فایل نمونه برای تنظیمات است.
+// لطفاً یک کپی از این فایل با نام config.php در همین پوشه بسازید
+// و مقادیر آن را با اطلاعات واقعی خود جایگزین کنید.
+
+// --- توکن ربات تلگرام ---
+// این توکن را از BotFather@ در تلگرام دریافت می‌کنید.
+define('API_TOKEN', 'YOUR_TELEGRAM_BOT_TOKEN');
+
+// --- اطلاعات اتصال به دیتابیس ---
+// این اطلاعات را از پنل هاست خود دریافت می‌کنید.
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'your_database_name');
+define('DB_USER', 'your_database_user');
+define('DB_PASS', 'your_database_password');
+
+// --- آدرس پایه (URL) ---
+// آدرس کاملی که فایل‌های ربات در آن قرار دارند.
+define('BASE_URL', 'https://yourdomain.com/path/to/bot/');
+
+// --- لیست ادمین‌های ربات ---
+// آرایه‌ای از شناسه‌های عددی (User ID) ادمین‌ها.
+const ADMINS = [
+    123456789, // شناسه عددی ادمین اصلی
+    // 987654321, // شناسه عددی ادمین دوم (در صورت وجود)
+];
+
+// --- نام کاربری ربات ---
+// نام کاربری ربات بدون @ (برای ساخت لینک‌های دانلود)
+define('BOT_USERNAME', 'YourBotUsername');
+
+// --- تنظیمات درگاه پرداخت (اختیاری) ---
+// اطلاعات مربوط به زرین‌پال
+define('ZARINPAL_MERCHANT_ID', 'YOUR_ZARINPAL_MERCHANT_ID');
+// اطلاعات مربوط به زیبال
+define('ZIBAL_MERCHANT_ID', 'YOUR_ZIBAL_MERCHANT_ID');
+
+
+// --- تنظیمات نمایش خطا برای توسعه ---
+// برای پیدا کردن خطاها در حین توسعه، این بخش را فعال نگه دارید.
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+?>
