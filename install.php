@@ -1,266 +1,229 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
 
-// It is crucial to include the configuration file that contains database credentials.
-// This path assumes 'config.php' is in the 'config' directory at the same level as this 'install.php' file.
-require_once 'config/config.php';
+// ============== P H P - B O T ==============
+// ------ I N S T A L L A T I O N - F I L E ------
+// ---- C R Y P T O 1 F I L M . O N L I N E ----
+
+// --- این فایل را فقط یک بار پس از آپلود در مرورگر خود اجرا کنید ---
+// --- این اسکریپت تمام جداول مورد نیاز ربات را در دیتابیس شما ایجاد می‌کند ---
+
+header('Content-Type: text/html; charset=utf-8');
+echo "<pre style='direction: ltr; text-align: left; font-family: monospace;'>";
+
+// اتصال به فایل تنظیمات
+require_once 'config.php';
+
+// پیام شروع
+echo "Attempting to connect to database 'DB_NAME' on 'DB_HOST'...\n";
 
 try {
-    // Establish a database connection using PDO.
-    $pdo = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS);
-    // Set PDO to throw exceptions on error, which is a robust way to handle SQL errors.
+    // ایجاد اتصال PDO
+    $pdo = new PDO("mysql:host=" . DB_HOST . ";charset=utf8mb4", DB_USER, DB_PASS);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    echo "Connection successful!\n";
 
-    // An array holding all the SQL commands to create the necessary tables.
-    // This structure ensures that all tables are created in a single, manageable block.
-    $tables = [
-        "admins" => "CREATE TABLE IF NOT EXISTS `admins` (
-            `idadmin` varchar(20) NOT NULL,
-            `nameadmin` varchar(100) DEFAULT NULL,
-            PRIMARY KEY (`idadmin`)
+    // ایجاد دیتابیس در صورت عدم وجود
+    $pdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    $pdo->exec("USE `" . DB_NAME . "`;");
+    echo "Database '" . DB_NAME . "' is ready.\n\n";
+
+    // --- لیست دستورات SQL برای ایجاد جداول ---
+    $sql_commands = [
+        "CREATE TABLE IF NOT EXISTS `user` (
+            `id` BIGINT PRIMARY KEY,
+            `step` VARCHAR(255) DEFAULT 'none',
+            `step2` TEXT,
+            `step3` TEXT,
+            `step4` TEXT,
+            `step5` TEXT,
+            `spam` BIGINT DEFAULT 0,
+            `timejoin` VARCHAR(255),
+            `vip` VARCHAR(10) DEFAULT 'no',
+            `viptime` DATE,
+            `dl` INT DEFAULT 0,
+            `expireok` VARCHAR(10) DEFAULT 'no',
+            `name` VARCHAR(255)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "ads" => "CREATE TABLE IF NOT EXISTS `ads` (
-            `id` int(10) NOT NULL AUTO_INCREMENT,
-            `type` varchar(10) DEFAULT NULL,
-            `file_id` varchar(300) DEFAULT NULL,
-            `caption` text DEFAULT NULL,
-            PRIMARY KEY (`id`)
+        "CREATE TABLE IF NOT EXISTS `files` (
+            `id` BIGINT,
+            `code` VARCHAR(255),
+            `msg_id` VARCHAR(255) DEFAULT 'none',
+            `ghfl_ch` VARCHAR(10) DEFAULT 'on',
+            `zd_filter` VARCHAR(10) DEFAULT 'off',
+            `dl` INT DEFAULT 1,
+            `pass` VARCHAR(255) DEFAULT 'none',
+            `mahdodl` VARCHAR(255) DEFAULT 'none',
+            `zaman` VARCHAR(255),
+            `likes` INT DEFAULT 0,
+            `dislikes` INT DEFAULT 0,
+            `file_id` TEXT,
+            `file_size` VARCHAR(255),
+            `caption` TEXT,
+            `type` VARCHAR(50),
+            `thumbnail` TEXT,
+            `fwlock` VARCHAR(10) DEFAULT 'on'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "channels" => "CREATE TABLE IF NOT EXISTS `channels` (
-            `idoruser` varchar(100) NOT NULL,
-            `link` varchar(200) NOT NULL,
-            `type` varchar(10) DEFAULT NULL,
-            PRIMARY KEY (`idoruser`)
+        "CREATE TABLE IF NOT EXISTS `userfiles` (
+            `code` VARCHAR(255),
+            `id` BIGINT,
+            `file_id` TEXT,
+            `caption` TEXT,
+            `type` VARCHAR(50)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "dbremove" => "CREATE TABLE IF NOT EXISTS `dbremove` (
-            `id` bigint(64) NOT NULL,
-            `message_id` int(250) NOT NULL,
-            `time` int(250) NOT NULL
+        "CREATE TABLE IF NOT EXISTS `settings` (
+            `botid` INT PRIMARY KEY,
+            `bot_mode` VARCHAR(10) DEFAULT 'on',
+            `chupl` VARCHAR(255) DEFAULT 'none',
+            `is_all` VARCHAR(255) DEFAULT 'no',
+            `auto_delete_minutes` VARCHAR(255) DEFAULT '1',
+            `dlfree` INT DEFAULT 0,
+            `topdlbut` VARCHAR(10) DEFAULT 'on',
+            `newdlbut` VARCHAR(10) DEFAULT 'on',
+            `supportbut` VARCHAR(10) DEFAULT 'on',
+            `likedlbut` VARCHAR(10) DEFAULT 'on',
+            `sendbut` VARCHAR(10) DEFAULT 'on',
+            `subbuy` VARCHAR(10) DEFAULT 'on',
+            `accountbut` VARCHAR(10) DEFAULT 'on',
+            `starttext` TEXT,
+            `bottype` VARCHAR(20) DEFAULT 'free',
+            `showlikes` VARCHAR(10) DEFAULT 'on',
+            `showdownload` VARCHAR(10) DEFAULT 'on',
+            `autoacc` VARCHAR(10) DEFAULT 'on',
+            `startdefault` VARCHAR(10) DEFAULT 'on',
+            `tumbnailvaz` VARCHAR(10) DEFAULT 'off',
+            `captionlinkvaz` VARCHAR(10) DEFAULT 'off',
+            `signdownload` TEXT,
+            `joinchanneltext` TEXT,
+            `fastupload` VARCHAR(255) DEFAULT '/up',
+            `alljoin` INT DEFAULT 0,
+            `placeads` VARCHAR(20) DEFAULT 'after',
+            `vaziat` VARCHAR(10) DEFAULT 'on',
+            `mtn_s_ch` TEXT,
+            `forall` VARCHAR(10) DEFAULT 'false',
+            `sendall` VARCHAR(10) DEFAULT 'false',
+            `tedad` INT DEFAULT 0,
+            `chat_id` BIGINT,
+            `msg_id` BIGINT,
+            `text` TEXT,
+            `sendedit` BIGINT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "files" => "CREATE TABLE IF NOT EXISTS `files` (
-            `code` varchar(10) DEFAULT NULL,
-            `msg_id` varchar(10) DEFAULT NULL,
-            `ghfl_ch` varchar(5) DEFAULT NULL,
-            `zd_filter` varchar(5) DEFAULT NULL,
-            `id` varchar(20) DEFAULT NULL,
-            `dl` int(20) DEFAULT 0,
-            `pass` varchar(50) DEFAULT NULL,
-            `mahdodl` varchar(10) DEFAULT NULL,
-            `zaman` varchar(20) DEFAULT NULL,
-            `likes` int(10) DEFAULT 0,
-            `dislikes` int(10) DEFAULT 0,
-            `file_id` varchar(500) DEFAULT NULL,
-            `file_size` varchar(10) DEFAULT NULL,
-            `caption` text DEFAULT NULL,
-            `type` varchar(10) DEFAULT NULL,
-            `thumbnail` text DEFAULT NULL,
-            `file` int(10) NOT NULL AUTO_INCREMENT,
-            `fwlock` varchar(5) DEFAULT NULL,
-            PRIMARY KEY (`file`),
-            INDEX `code_index` (`code`)
+        "CREATE TABLE IF NOT EXISTS `peyment` (
+            `botid` INT PRIMARY KEY,
+            `merichentzarin` VARCHAR(255) DEFAULT 'none',
+            `merichentziball` VARCHAR(255) DEFAULT 'none',
+            `sub1` VARCHAR(255) DEFAULT 'اشتراک 1^on^30^10000',
+            `sub2` VARCHAR(255) DEFAULT 'اشتراک 2^on^60^20000',
+            `sub3` VARCHAR(255) DEFAULT 'اشتراک 3^on^90^30000',
+            `sub4` VARCHAR(255) DEFAULT 'اشتراک 4^off^0^0',
+            `sub5` VARCHAR(255) DEFAULT 'اشتراک 5^off^0^0',
+            `sub6` VARCHAR(255) DEFAULT 'اشتراک 6^off^0^0',
+            `matnpay` TEXT,
+            `waypay` VARCHAR(20) DEFAULT 'zarin'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "folders" => "CREATE TABLE IF NOT EXISTS `folders` (
-            `id` int(10) NOT NULL AUTO_INCREMENT,
-            `name` text DEFAULT NULL,
-            `files` text DEFAULT NULL,
-            PRIMARY KEY (`id`)
+        "CREATE TABLE IF NOT EXISTS `channels` (
+            `idoruser` VARCHAR(255) PRIMARY KEY,
+            `link` VARCHAR(255),
+            `type` VARCHAR(50)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "peyment" => "CREATE TABLE IF NOT EXISTS `peyment` (
-            `id` int(10) NOT NULL AUTO_INCREMENT,
-            `merichentzarin` varchar(300) DEFAULT NULL,
-            `merichentziball` varchar(300) DEFAULT NULL,
-            `sub1` text DEFAULT NULL,
-            `sub2` text DEFAULT NULL,
-            `sub3` text DEFAULT NULL,
-            `sub4` text DEFAULT NULL,
-            `sub5` text DEFAULT NULL,
-            `sub6` text DEFAULT NULL,
-            `matnpay` text DEFAULT NULL,
-            `waypay` varchar(10) DEFAULT NULL,
-            PRIMARY KEY (`id`)
+        "CREATE TABLE IF NOT EXISTS `admins` (
+            `idadmin` BIGINT PRIMARY KEY,
+            `nameadmin` VARCHAR(255)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "reaction" => "CREATE TABLE IF NOT EXISTS `reaction` (
-            `checkreact` varchar(100) DEFAULT NULL,
-            `channelreact` varchar(250) DEFAULT NULL,
-            `reacttedad` int(11) DEFAULT NULL,
-            `timefakereact` int(11) DEFAULT NULL
+        "CREATE TABLE IF NOT EXISTS `ads` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `type` VARCHAR(50),
+            `file_id` TEXT,
+            `caption` TEXT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "seen" => "CREATE TABLE IF NOT EXISTS `seen` (
-            `checkseen` varchar(10) DEFAULT 'off',
-            `channelseen` varchar(20) DEFAULT 'none',
-            `adadseen` int(11) DEFAULT 0,
-            `timefake` int(11) DEFAULT 10
+        "CREATE TABLE IF NOT EXISTS `dbremove` (
+            `id` BIGINT,
+            `message_id` BIGINT,
+            `time` BIGINT,
+            PRIMARY KEY (`id`, `message_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "settings" => "CREATE TABLE IF NOT EXISTS `settings` (
-            `botid` varchar(30) NOT NULL,
-            `bot_mode` varchar(20) NOT NULL,
-            `mtn_s_ch` text NOT NULL,
-            `chupl` varchar(70) NOT NULL,
-            `forall` varchar(20) NOT NULL,
-            `sendall` varchar(20) NOT NULL,
-            `tedad` varchar(20) NOT NULL,
-            `text` text NOT NULL,
-            `chat_id` varchar(20) NOT NULL,
-            `is_all` varchar(20) NOT NULL,
-            `factwebir` varchar(20) NOT NULL,
-            `msg_id` varchar(20) NOT NULL,
-            `topdlbut` varchar(25) DEFAULT NULL,
-            `newdlbut` varchar(25) DEFAULT NULL,
-            `supportbut` varchar(25) DEFAULT NULL,
-            `sendbut` varchar(25) DEFAULT NULL,
-            `starttext` text DEFAULT NULL,
-            `subbuy` varchar(5) DEFAULT NULL,
-            `accountbut` varchar(5) DEFAULT NULL,
-            `bottype` varchar(20) DEFAULT NULL,
-            `showlikes` varchar(5) DEFAULT NULL,
-            `showdownload` varchar(5) DEFAULT NULL,
-            `autoacc` varchar(5) DEFAULT NULL,
-            `dlfree` int(10) DEFAULT NULL,
-            `likedlbut` varchar(5) DEFAULT NULL,
-            `startdefault` varchar(5) DEFAULT NULL,
-            `tumbnailvaz` varchar(5) DEFAULT NULL,
-            `captionlinkvaz` varchar(5) DEFAULT NULL,
-            `signdownload` text DEFAULT NULL,
-            `joinchanneltext` text DEFAULT NULL,
-            `fastupload` text DEFAULT NULL,
-            `sendedit` varchar(20) DEFAULT NULL,
-            `alljoin` int(20) DEFAULT 0,
-            `vaziat` varchar(10) DEFAULT NULL,
-            `placeads` varchar(10) DEFAULT NULL,
-            PRIMARY KEY (`botid`)
+        "CREATE TABLE IF NOT EXISTS `folders` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(255) UNIQUE,
+            `files` TEXT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "user" => "CREATE TABLE IF NOT EXISTS `user` (
-            `id` bigint(64) NOT NULL,
-            `step` varchar(500) NOT NULL,
-            `step2` varchar(500) NOT NULL,
-            `step3` varchar(2500) NOT NULL,
-            `step4` varchar(500) NOT NULL,
-            `step5` varchar(500) NOT NULL,
-            `spam` varchar(20) NOT NULL,
-            `timejoin` varchar(50) DEFAULT NULL,
-            `vip` varchar(50) DEFAULT 'no',
-            `viptime` varchar(50) DEFAULT NULL,
-            `dl` varchar(50) DEFAULT '0',
-            `expireok` varchar(5) DEFAULT 'no',
-            `name` varchar(100) DEFAULT NULL,
-            PRIMARY KEY (`id`)
+        "CREATE TABLE IF NOT EXISTS `reaction` (
+            `botid` INT PRIMARY KEY,
+            `checkreact` VARCHAR(10) DEFAULT 'off',
+            `channelreact` VARCHAR(255) DEFAULT 'none',
+            `reacttedad` INT DEFAULT 5,
+            `timefakereact` INT DEFAULT 5
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
 
-        "userfiles" => "CREATE TABLE IF NOT EXISTS `userfiles` (
-            `code` varchar(10) DEFAULT NULL,
-            `id` int(20) DEFAULT NULL,
-            `file_id` varchar(500) DEFAULT NULL,
-            `caption` text DEFAULT NULL,
-            `type` varchar(10) DEFAULT NULL,
-            INDEX `code_index` (`code`)
+        "CREATE TABLE IF NOT EXISTS `seen` (
+            `botid` INT PRIMARY KEY,
+            `checkseen` VARCHAR(10) DEFAULT 'off',
+            `channelseen` VARCHAR(255) DEFAULT 'none',
+            `adadseen` INT DEFAULT 5,
+            `timefake` INT DEFAULT 5
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
     ];
 
-    // Loop through the array and execute each CREATE TABLE statement.
-    foreach ($tables as $tableName => $query) {
-        $pdo->exec($query);
+    // اجرای دستورات
+    foreach ($sql_commands as $command) {
+        $pdo->exec($command);
+        preg_match("/TABLE IF NOT EXISTS `(.*?)`/", $command, $matches);
+        $tableName = $matches[1] ?? 'UNKNOWN';
+        echo "Table `{$tableName}` created or already exists.\n";
     }
 
-    // Begin a transaction to ensure all initial data is inserted successfully or none at all.
-    $pdo->beginTransaction();
+    // --- افزودن رکوردهای پیش‌فرض ---
+    echo "\nInserting default records...\n";
 
-    // Check if the settings table is empty before inserting default data.
-    // This prevents duplicate entries if the script is run more than once.
-    $stmt = $pdo->query("SELECT COUNT(*) FROM `settings` WHERE `botid` = '" . BOT_TOKEN . "'");
-    if ($stmt->fetchColumn() == 0) {
-        $pdo->exec("INSERT INTO `settings` (`botid`, `bot_mode`, `mtn_s_ch`, `chupl`, `forall`, `sendall`, `tedad`, `text`, `chat_id`, `is_all`, `factwebir`, `msg_id`, `topdlbut`, `newdlbut`, `supportbut`, `sendbut`, `starttext`, `subbuy`, `accountbut`, `bottype`, `showlikes`, `showdownload`, `autoacc`, `dlfree`, `likedlbut`, `startdefault`, `tumbnailvaz`, `captionlinkvaz`, `signdownload`, `joinchanneltext`, `fastupload`, `sendedit`, `alljoin`, `vaziat`, `placeads`) VALUES
-        ('" . BOT_TOKEN . "', 'on', 'none', 'none', 'false', 'false', '0', 'none', 'no', 'no', '1', 'no', 'on', 'on', 'on', 'off', 'start', 'off', 'off', 'free', 'on', 'on', 'off', 5, 'on', 'on', 'on', 'on', '@uploader', 'join us', '/up', 'none', 0, 'off', 'before');");
-    }
+    // افزودن رکورد پیش‌فرض برای جدول settings
+    $stmt = $pdo->prepare("INSERT IGNORE INTO `settings` (`botid`, `starttext`, `joinchanneltext`, `signdownload`) VALUES (?, ?, ?, ?)");
+    $stmt->execute([
+        $botid,
+        '⭐️ Welcome<b> « {firstname} »</b>⭐️',
+        'برای استفاده از ربات باید در کانال‌های زیر عضو شوید.',
+        'bot username'
+    ]);
+    echo "Default record for `settings` checked/inserted.\n";
 
-    // Check and insert default data for the 'peyment' table.
-    $stmt = $pdo->query("SELECT COUNT(*) FROM `peyment`");
-    if ($stmt->fetchColumn() == 0) {
-        $pdo->exec("INSERT INTO `peyment` (`merichentzarin`, `merichentziball`, `sub1`, `sub2`, `sub3`, `sub4`, `sub5`, `sub6`, `matnpay`, `waypay`, `id`) VALUES
-        ('none', 'none', 'e1^on^10^100000', 'e2^on^20^200000', 'e3^on^30^300000', 'e4^on^40^50000^400000', 'e5^on^50^50000^500000', 'e6^off^60^600000', 'buy', 'zarin', 1);");
-    }
+    // افزودن رکورد پیش‌فرض برای جدول peyment
+    $stmt = $pdo->prepare("INSERT IGNORE INTO `peyment` (`botid`, `matnpay`) VALUES (?, ?)");
+    $stmt->execute([
+        $botid,
+        'برای دسترسی به فایل‌ها باید اشتراک تهیه کنید.'
+    ]);
+    echo "Default record for `peyment` checked/inserted.\n";
 
-    // Check and insert default data for the 'reaction' table.
-    $stmt = $pdo->query("SELECT COUNT(*) FROM `reaction`");
-    if ($stmt->fetchColumn() == 0) {
-        $pdo->exec("INSERT INTO `reaction` (`checkreact`, `channelreact`, `reacttedad`, `timefakereact`) VALUES ('off', 'none', 1, 5);");
-    }
+    // افزودن رکورد پیش‌فرض برای جدول reaction
+    $stmt = $pdo->prepare("INSERT IGNORE INTO `reaction` (`botid`) VALUES (?)");
+    $stmt->execute([$botid]);
+    echo "Default record for `reaction` checked/inserted.\n";
 
-    // Check and insert default data for the 'seen' table.
-    $stmt = $pdo->query("SELECT COUNT(*) FROM `seen`");
-    if ($stmt->fetchColumn() == 0) {
-        $pdo->exec("INSERT INTO `seen` (`checkseen`, `channelseen`, `adadseen`, `timefake`) VALUES ('off', 'none', 10, 5);");
-    }
+    // افزودن رکورد پیش‌فرض برای جدول seen
+    $stmt = $pdo->prepare("INSERT IGNORE INTO `seen` (`botid`) VALUES (?)");
+    $stmt->execute([$botid]);
+    echo "Default record for `seen` checked/inserted.\n";
 
-    // Commit the transaction, making all the data insertions permanent.
-    $pdo->commit();
+    echo "\n\n--- Installation Complete! ---\n";
+    echo "You can now delete this file ('install.php') from your host.\n";
 
 } catch (PDOException $e) {
-    // If any error occurs during the process, roll back the transaction.
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-    // Halt the script and display a detailed error message.
-    die("Database setup failed: " . $e->getMessage());
+    echo "------------------\n";
+    echo "E R R O R !\n";
+    echo "------------------\n";
+    echo "Could not connect to the database or execute commands.\n";
+    echo "Please check your credentials in `config.php` and ensure the database user has permission to CREATE tables.\n\n";
+    die("Error details: " . $e->getMessage());
 }
 
-// Once all operations are successful, display a confirmation message to the user.
+echo "</pre>";
+
 ?>
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نصب موفق</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f4f7f6;
-        }
-        .success-container {
-            text-align: center;
-            background-color: #ffffff;
-            padding: 2rem 3rem;
-            border-radius: 12px;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-        }
-        .success-icon {
-            font-size: 4rem;
-            color: #28a745;
-            margin-bottom: 1rem;
-        }
-        .success-message {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 1rem;
-        }
-        .success-details {
-            font-size: 1rem;
-            color: #555;
-        }
-    </style>
-</head>
-<body>
-    <div class="success-container">
-        <div class="success-icon">&#10004;</div>
-        <div class="success-message">عملیات با موفقیت انجام شد</div>
-        <div class="success-details">جداول پایگاه داده و داده‌های اولیه با موفقیت ایجاد و درج شدند.</div>
-    </div>
-</body>
-</html>
